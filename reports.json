@@ -1,0 +1,64 @@
+{
+  "spareparts_sales_statement": {
+    "module": "SPARE PARTS",
+    "folders": [
+      "REPORTS",
+      "SALES",
+      "STATEMENTS"
+    ],
+    "report_name": "Sale statement",
+    "filters": [
+      "Show Taxes",
+      "Show Tax Detail"
+    ]
+  },
+  "spareparts_sale_invoice_statement": {
+    "module": "SPARE PARTS",
+    "folders": [
+      "REPORTS",
+      "SALES",
+      "STATEMENTS"
+    ],
+    "report_name": "Sale invoice statement new"
+  },
+  "spareparts_sale_return_statement": {
+    "module": "SPARE PARTS",
+    "folders": [
+      "REPORTS",
+      "SALES",
+      "STATEMENTS"
+    ],
+    "report_name": "Sale return statement"
+  },
+  "spareparts_purchase_statement": {
+    "module": "SPARE PARTS",
+    "folders": [
+      "REPORTS",
+      "PROCUREMENT",
+      "STATEMENTS"
+    ],
+    "report_name": "Purchase statement",
+    "filters": [
+      "Show Taxes",
+      "Show Tax Detail"
+    ]
+  },
+  "spareparts_purchase_invoice_statement": {
+    "module": "SPARE PARTS",
+    "folders": [
+      "REPORTS",
+      "PROCUREMENT",
+      "STATEMENTS"
+    ],
+    "report_name": "Purchase Invoice statement"
+  },
+  "spareparts_stock_valuation": {
+    "module": "SPARE PARTS",
+    "folders": [
+      "REPORTS",
+      "INVENTORY",
+      "STOCKS"
+    ],
+    "report_name": "Stock valuation"
+  }
+}
