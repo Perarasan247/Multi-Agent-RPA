@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     dealer_code: str = "D10836"
     branch_code: str = "BR001"
     save_path: str = r"C:\Reports\Downloads"
+    download_format: str = "xlsx"
 
     # Vision
     gemini_api_key: str = ""

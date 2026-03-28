@@ -14,8 +14,8 @@ from tenacity import retry, stop_after_attempt, wait_fixed
 def connect_to_app(window_title: str) -> Application:
     """Connect to an already-running application by window title.
 
-    Connects via process ID so multiple matching windows (e.g. main app
-    + an open report) don't cause an ambiguity error.
+    Uses pygetwindow for fast window lookup, then connects via
+    process ID so multiple matching windows don't cause ambiguity.
 
     Args:
         window_title: Partial or full title of the target window.
@@ -27,35 +27,30 @@ def connect_to_app(window_title: str) -> Application:
         RuntimeError: If the application window is not found.
     """
     try:
-        # Find all top-level windows whose title contains window_title
-        desktop = Desktop(backend="uia")
-        matches = []
-        for win in desktop.windows():
-            try:
-                title = win.window_text()
-                if title and window_title.lower() in title.lower():
-                    matches.append(win)
-            except Exception:
-                continue
+        import ctypes
+        import ctypes.wintypes
+
+        # Use pygetwindow for fast enumeration (avoids slow UIA walk)
+        all_windows = gw.getAllWindows()
+        matches = [w for w in all_windows if w.title and _is_excellon_window(w.title, window_title)]
 
         if not matches:
             raise RuntimeError(f"No window found with title containing '{window_title}'")
 
         # Prefer the window whose title starts with the app name (main window)
-        # rather than a child/report window
         best = matches[0]
         for win in matches:
-            try:
-                t = win.window_text()
-                if t.lower().startswith(window_title.lower()):
-                    best = win
-                    break
-            except Exception:
-                continue
+            if win.title.lower().startswith(window_title.lower()):
+                best = win
+                break
 
-        pid = best.process_id()
-        app = Application(backend="uia").connect(process=pid)
-        logger.info("Connected to application: {} (pid={})", window_title, pid)
+        # Get process ID from the window handle
+        pid = ctypes.wintypes.DWORD()
+        ctypes.windll.user32.GetWindowThreadProcessId(best._hWnd, ctypes.byref(pid))
+        process_id = pid.value
+
+        app = Application(backend="uia").connect(process=process_id)
+        logger.info("Connected to application: '{}' (pid={})", best.title, process_id)
         return app
 
     except RuntimeError:
@@ -70,6 +65,9 @@ def connect_to_app(window_title: str) -> Application:
 def focus_window(app: Application, window_title: str) -> bool:
     """Bring the application window to the foreground.
 
+    Uses pygetwindow for fast focus (avoids slow UIA tree walk).
+    Falls back to pywinauto's top_window().set_focus() if needed.
+
     Args:
         app: pywinauto Application handle.
         window_title: Expected window title substring.
@@ -81,22 +79,35 @@ def focus_window(app: Application, window_title: str) -> bool:
         RuntimeError on repeated failure (handled by tenacity).
     """
     try:
-        win = app.top_window()
-        win.set_focus()
-        time.sleep(0.3)
+        # Fast path: use pygetwindow to find and activate the window
+        all_windows = gw.getAllWindows()
+        target = None
+        for w in all_windows:
+            if w.title and _is_excellon_window(w.title, window_title):
+                target = w
+                break
 
-        # Verify focus using pygetwindow
-        active_windows = gw.getWindowsWithTitle(window_title)
-        if active_windows:
-            for w in active_windows:
-                if w.isActive:
-                    logger.debug("Window '{}' is now focused.", window_title)
-                    return True
+        if target:
+            try:
+                if target.isMinimized:
+                    target.restore()
+                target.activate()
+                time.sleep(0.3)
+            except Exception:
+                # pygetwindow activate can fail on some windows, fall back
+                import ctypes
+                ctypes.windll.user32.SetForegroundWindow(target._hWnd)
+                time.sleep(0.3)
+        else:
+            # Fallback to get_main_window (avoids slow UIA tree walk)
+            win = get_main_window(app, window_title)
+            win.set_focus()
+            time.sleep(0.3)
 
-        # Fallback: check if our window is the active window
+        # Verify focus
         active = gw.getActiveWindow()
-        if active and window_title.lower() in active.title.lower():
-            logger.debug("Window '{}' verified active via getActiveWindow.", window_title)
+        if active and _is_excellon_window(active.title, window_title):
+            logger.debug("Window '{}' is now focused.", window_title)
             return True
 
         logger.warning("Window '{}' focus could not be verified, retrying.", window_title)
@@ -117,26 +128,26 @@ def check_app_state(app: Application) -> str:
         'unknown' otherwise.
     """
     try:
-        main_win = app.top_window()
-        children = main_win.children()
+        main_win = get_main_window(app)
+        # Check for popup windows via pygetwindow (fast)
+        import ctypes
+        main_title = main_win.window_text()
+        main_pid = None
+        for w in gw.getAllWindows():
+            if w.title and w.title == main_title:
+                pid = ctypes.wintypes.DWORD()
+                ctypes.windll.user32.GetWindowThreadProcessId(w._hWnd, ctypes.byref(pid))
+                main_pid = pid.value
+                break
 
-        for child in children:
-            try:
-                ctrl_type = child.element_info.control_type
-                if ctrl_type == "Window" or ctrl_type == "Dialog":
-                    dialog_title = child.window_text()
-                    logger.debug("Modal dialog detected: '{}'", dialog_title)
-                    return "modal_open"
-            except Exception:
-                continue
-
-        # Check for any separate dialog windows
-        dialogs = app.windows()
-        if len(dialogs) > 1:
-            for dlg in dialogs:
-                title = dlg.window_text()
-                if title and title != main_win.window_text():
-                    logger.debug("Separate dialog window found: '{}'", title)
+        if main_pid:
+            for w in gw.getAllWindows():
+                if not w.title or not w.title.strip():
+                    continue
+                pid = ctypes.wintypes.DWORD()
+                ctypes.windll.user32.GetWindowThreadProcessId(w._hWnd, ctypes.byref(pid))
+                if pid.value == main_pid and w.title != main_title:
+                    logger.debug("Separate dialog window found: '{}'", w.title)
                     return "modal_open"
 
         return "ready"
@@ -146,8 +157,45 @@ def check_app_state(app: Application) -> str:
         return "unknown"
 
 
+def _is_excellon_window(title: str, window_title: str) -> bool:
+    """Check if a window title belongs to the Excellon application.
+
+    Matches if the app name appears at the START of the title OR
+    anywhere in the title preceded by a separator (e.g. " - Excellon").
+    Prevents false matches like "excellon-rpa-system" by checking
+    the character after the match is a word boundary.
+    """
+    t = title.lower()
+    keyword = window_title.strip().lower()
+
+    # Find all occurrences of the keyword in the title
+    start = 0
+    while True:
+        idx = t.find(keyword, start)
+        if idx == -1:
+            return False
+
+        end_idx = idx + len(keyword)
+
+        # Check character before: must be start-of-string or a separator
+        # Note: "-" is excluded because "excellon-rpa-system" in paths/titles
+        # should NOT match the "Excellon" app keyword
+        if idx > 0 and t[idx - 1] not in (" ", "\t", ".", ",", ":", ";"):
+            start = idx + 1
+            continue
+
+        # Check character after: must be end-of-string or a separator
+        if end_idx < len(t) and t[end_idx] not in (" ", "\t", ".", ",", ":", ";"):
+            start = idx + 1
+            continue
+
+        return True
+
+
 def is_app_running(window_title: str) -> bool:
     """Check if an application is running by searching visible windows.
+
+    Uses pygetwindow for fast enumeration (avoids slow UIA tree walk).
 
     Args:
         window_title: Title substring to search for.
@@ -156,26 +204,65 @@ def is_app_running(window_title: str) -> bool:
         True if a matching window is found.
     """
     try:
-        windows = Desktop(backend="uia").windows()
-        for win in windows:
-            try:
-                title = win.window_text()
-                if title and window_title.lower() in title.lower():
-                    logger.debug("Application window found: '{}'", title)
-                    return True
-            except Exception:
-                continue
+        all_titles = gw.getAllTitles()
+        for title in all_titles:
+            if title and _is_excellon_window(title, window_title):
+                logger.debug("Application window found: '{}'", title)
+                return True
         return False
     except Exception as exc:
         logger.warning("Error checking if app is running: {}", exc)
         return False
 
 
-def launch_app(exe_path: str) -> None:
-    """Launch an application by its executable path.
+def get_main_window(app: Application = None, window_title: str = None):
+    """Get the main application window wrapper quickly.
+
+    Uses the window handle from pygetwindow to create a pywinauto
+    UIAWrapper directly, avoiding a slow UIA tree enumeration.
+
+    IMPORTANT: Always use this instead of app.top_window() or app.windows()
+    which hang on Excellon's complex UIA tree.
 
     Args:
-        exe_path: Full path to the .exe file.
+        app: pywinauto Application handle (optional, not used for fast path).
+        window_title: Window title substring to match. Defaults to settings.
+
+    Returns:
+        pywinauto UIAWrapper for the main window.
+
+    Raises:
+        RuntimeError: If no matching window is found.
     """
+    if window_title is None:
+        from config.settings import settings as _s
+        window_title = _s.app_window_title
+
+    # Fast: find the HWND via pygetwindow
+    all_windows = gw.getAllWindows()
+    for w in all_windows:
+        if w.title and _is_excellon_window(w.title, window_title):
+            hwnd = w._hWnd
+            from pywinauto.controls.uiawrapper import UIAWrapper
+            from pywinauto.uia_element_info import UIAElementInfo
+            element_info = UIAElementInfo(hwnd)
+            return UIAWrapper(element_info)
+
+    raise RuntimeError(f"No window found matching '{window_title}'")
+
+
+def launch_app(exe_path: str) -> None:
+    """Launch an application by its executable path or shortcut.
+
+    Supports .exe files and .appref-ms (ClickOnce) shortcuts.
+
+    Args:
+        exe_path: Full path to the .exe or .appref-ms file.
+    """
+    import os
     logger.info("Launching application: {}", exe_path)
-    subprocess.Popen([exe_path])
+    if exe_path.lower().endswith(".appref-ms"):
+        # ClickOnce shortcuts must be opened via shell, not subprocess
+        os.startfile(exe_path)
+    else:
+        subprocess.Popen([exe_path])

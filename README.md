@@ -1,120 +1,168 @@
 # Excellon RPA System
 
-Production-grade multi-agent RPA system that automates the **Excellon Bajaj 5.0** Windows desktop application end to end. Built with LangGraph orchestration, pywinauto UI automation, OpenCV visual verification, and Gemini AI confirmation.
+Automated report generation and export pipeline for the **Excellon Bajaj 5.0** Windows desktop application. Built with LangGraph orchestration, pywinauto UI automation, OpenCV visual detection, and Google Gemini AI verification.
 
-## Architecture Overview
+## Architecture
 
-The system uses 4 specialized agents orchestrated by a master LangGraph pipeline:
+The system runs 4 specialized agents in sequence, each responsible for one phase of the workflow:
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                 Master Orchestrator                  │
-│         (LangGraph StateGraph Pipeline)              │
-├──────────┬──────────┬──────────┬────────────────────┤
-│ Agent 1  │ Agent 2  │ Agent 3  │ Agent 4            │
-│ Login    │ Navigate │ Filter   │ Download           │
-│          │          │          │                    │
-│ Launch   │ Search   │ Toggle   │ Click XLSX export  │
-│ Type     │ Collect  │ Tax CBs  │ Uncheck hyperlinks │
-│ creds    │ 3-layer  │ Custom   │ Set filename       │
-│ Connect  │ match    │ dates    │ Save to disk       │
-│ Popups   │ OpenCV   │ Generate │ Handle popups      │
-│ Verify   │ Gemini   │ report   │ Quit app           │
-└──────────┴──────────┴──────────┴────────────────────┘
+                         Excellon RPA Pipeline
+ ┌──────────────────────────────────────────────────────────────────┐
+ │                      Master Orchestrator                         │
+ │                  (LangGraph StateGraph Pipeline)                 │
+ │                                                                  │
+ │   Agent 1         Agent 2          Agent 3         Agent 4       │
+ │   LOGIN           NAVIGATION       FILTER          DOWNLOAD      │
+ │  ─────────       ────────────     ──────────      ───────────    │
+ │  Launch app      Search bar       Open filter     Click XLSX     │
+ │  Credentials     OpenCV detect    panel           File export    │
+ │  Press Connect   Gemini verify    Tax checkboxes  Save As        │
+ │  Handle popups   Double-click     Custom dates    Rename file    │
+ │  Verify home     Open report      Generate        Close app      │
+ │                                                                  │
+ │       ──►             ──►              ──►              ──►      │
+ │                 Error at any stage halts pipeline                 │
+ └──────────────────────────────────────────────────────────────────┘
 ```
 
-Each agent is an independent LangGraph sub-graph. The master orchestrator chains them sequentially with conditional error routing — if any agent fails, the pipeline halts immediately and logs the failure.
+Each agent is an independent LangGraph sub-graph with its own state and node definitions. The orchestrator chains them with conditional error routing -- if any agent fails, the pipeline halts and reports the failure.
+
+### Technology Stack
+
+| Layer | Technology | Purpose |
+|---|---|---|
+| Orchestration | LangGraph | State graph pipelines, conditional routing |
+| UI Automation | pywinauto, pyautogui | Window interaction, keyboard/mouse control |
+| Window Detection | pygetwindow, ctypes | Fast window enumeration (Win32 API) |
+| Computer Vision | OpenCV | Highlight detection in search results |
+| AI Verification | Google Gemini 2.0 Flash | Visual confirmation of correct item selection |
+| Configuration | Pydantic Settings | Type-safe .env configuration |
+| API | FastAPI + Uvicorn | REST API for remote execution |
+| Logging | Loguru | Structured logging with rotation |
 
 ## Prerequisites
 
-- **Windows 10/11** (desktop automation requires Windows)
+- **Windows 10/11** (requires Windows desktop for UI automation)
 - **Python 3.11+**
-- **Excellon Bajaj 5.0** installed and accessible
-- **Google Gemini API key** for visual verification
+- **Excellon Bajaj 5.0** installed and accessible via ClickOnce shortcut
+- **Google Gemini API key** (for visual verification in navigation)
 
 ## Installation
 
 ```bash
-# Clone the repository
 git clone <repo-url>
 cd excellon-rpa-system
 
-# Create virtual environment
 python -m venv venv
 venv\Scripts\activate
 
-# Install dependencies
 pip install -r requirements.txt
 ```
 
 ## Configuration
 
-### .env file
+### Environment Variables
 
-Copy `.env.example` to `.env` and fill in your values:
+Create a `.env` file in the project root:
 
-```bash
-copy .env.example .env
+```env
+# Application
+APP_EXE_PATH=C:\Users\YourName\Desktop\Excellon Bajaj 5.appref-ms
+APP_WINDOW_TITLE=Excellon
+
+# Login Credentials
+EXCELLON_USERNAME=sales.d10836
+EXCELLON_PASSWORD=your_password
+
+# Report Selection (must match a key in reports.json)
+REPORT_KEY=sale_statement
+
+# Date Range (DD/MM/YYYY)
+FILTER_FROM_DATE=01/03/2026
+FILTER_TO_DATE=31/03/2026
+
+# Download Settings
+DEALER_CODE=D10836
+BRANCH_CODE=BR001
+SAVE_PATH=D:\Projects\excellon-rpa-system\download
+DOWNLOAD_FORMAT=xlsx
+
+# Google Gemini (for visual verification)
+GEMINI_API_KEY=your_gemini_api_key
+
+# API Server (optional)
+API_HOST=0.0.0.0
+API_PORT=8000
+LOG_LEVEL=INFO
 ```
 
-Key settings to configure:
+### Report Definitions
 
-| Variable | Description |
+Reports are defined in `reports.json`. Each entry specifies the navigation path and filter configuration:
+
+```json
+{
+  "sale_statement": {
+    "module": "SALES MODULE",
+    "folders": ["REPORTS", "SALES", "Statements"],
+    "report_name": "Sale Statement",
+    "filters": ["Show Taxes", "Show Tax Detail"]
+  }
+}
+```
+
+| Field | Description |
 |---|---|
-| `APP_EXE_PATH` | Full path to Excellon.exe |
-| `EXCELLON_USERNAME` | Login username |
-| `EXCELLON_PASSWORD` | Login password |
-| `REPORT_KEY` | Report to generate (see reports.json) |
-| `FILTER_FROM_DATE` | Start date (DD/MM/YYYY) |
-| `FILTER_TO_DATE` | End date (DD/MM/YYYY) |
-| `DEALER_CODE` | Dealer code for filename |
-| `BRANCH_CODE` | Branch code for filename |
-| `SAVE_PATH` | Folder to save exported XLSX |
-| `GEMINI_API_KEY` | Google Gemini API key |
+| `module` | Top-level module in Excellon's navigation tree |
+| `folders` | Folder path from module to the report (excluding the report itself) |
+| `report_name` | Exact display name of the report in the UI |
+| `filters` | Checkboxes to enable in the filter panel (optional) |
 
-### reports.json
+**Available reports:**
 
-Defines all available reports with their navigation paths and filter requirements. See the existing entries for the expected structure.
+| Key | Report | Path |
+|---|---|---|
+| `sale_statement` | Sale Statement | Sales > Reports > Sales > Statements |
+| `purchase_statement` | Purchase Statement | Sales > Reports > Procurement > Statements |
+| `purchase_invoice_statement` | Purchase Invoice Statement | Sales > Reports > Procurement > Statements |
+| `stock_valuation` | Stock Valuation | Sales > Reports > Inventory > Stock |
+| `hsrp_installation_report` | HSRP Installation Report | Sales > HSRP |
+| `hsrp_pending_chassis_report` | HSRP Pending Chassis Report | Sales > HSRP |
 
-## Running the System
+## Usage
 
 ### Full Pipeline
 
-Run all 4 agents sequentially:
+Run all 4 agents sequentially (login, navigate, filter, download):
 
 ```bash
 python main.py --run
 ```
 
-With overrides:
+With date and report overrides:
 
 ```bash
-python main.py --run --report-key spareparts_purchase_statement --from-date 01/01/2026 --to-date 31/01/2026
+python main.py --run --report-key purchase_statement --from-date 01/01/2026 --to-date 31/01/2026
 ```
 
 ### Single Agent
 
-Run one agent in isolation (useful for testing/debugging):
+Run one agent in isolation (the application must already be in the correct state):
 
 ```bash
-python main.py --agent login
-python main.py --agent navigation
-python main.py --agent filter
-python main.py --agent download
+python main.py --agent login        # Launch app and log in
+python main.py --agent navigation   # Search and open a report
+python main.py --agent filter       # Set filters and generate report
+python main.py --agent download     # Export XLSX and close app
 ```
 
 ### API Server
 
-Start the FastAPI server:
+Start the REST API for remote execution:
 
 ```bash
 python main.py --api
-```
-
-Or directly with uvicorn:
-
-```bash
-uvicorn api.main:app --reload
 ```
 
 ## API Reference
@@ -126,127 +174,155 @@ Run the full 4-agent pipeline.
 ```bash
 curl -X POST http://localhost:8000/run-pipeline \
   -H "Content-Type: application/json" \
-  -d '{"report_key": "spareparts_sales_statement"}'
+  -d '{"report_key": "sale_statement", "from_date": "01/03/2026", "to_date": "31/03/2026"}'
 ```
 
-**Request body** (all optional — defaults from .env):
-
-```json
-{
-  "report_key": "spareparts_sales_statement",
-  "from_date": "01/03/2026",
-  "to_date": "31/03/2026"
-}
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "report_key": "spareparts_sales_statement",
-  "filename_saved": "D10836_BR001_spareparts_sales_statement_01-03-2026_to_31-03-2026_20260320_143022.xlsx",
-  "agents_completed": [
-    {"agent_name": "agent1_login", "success": true, "error": null},
-    {"agent_name": "agent2_navigation", "success": true, "error": null},
-    {"agent_name": "agent3_filter", "success": true, "error": null},
-    {"agent_name": "agent4_download", "success": true, "error": null}
-  ],
-  "error": null,
-  "duration_seconds": 47.3
-}
-```
+All request body fields are optional (defaults from `.env`).
 
 ### POST /run-agent/{agent_name}
 
-Run a single agent. `agent_name` must be: `login`, `navigation`, `filter`, or `download`.
+Run a single agent. Valid names: `login`, `navigation`, `filter`, `download`.
 
 ```bash
-curl -X POST http://localhost:8000/run-agent/login
+curl -X POST http://localhost:8000/run-agent/filter
 ```
 
 ### GET /health
 
-Health check — reports whether the Excellon app is currently running.
-
-```bash
-curl http://localhost:8000/health
-```
+Returns whether the Excellon application is currently running.
 
 ### GET /status
 
-Returns the status of the last pipeline run.
+Returns the result of the last pipeline run.
 
-```bash
-curl http://localhost:8000/status
+## Project Structure
+
+```
+excellon-rpa-system/
+├── main.py                          # CLI entry point
+├── reports.json                     # Report definitions
+├── requirements.txt                 # Python dependencies
+├── .env                             # Configuration (not committed)
+│
+├── orchestrator/                    # Pipeline orchestration
+│   ├── graph.py                     #   Master pipeline (chains 4 agents)
+│   ├── state.py                     #   GlobalState TypedDict
+│   └── router.py                    #   Conditional routing logic
+│
+├── agents/
+│   ├── agent1_login/                # Agent 1: Login
+│   │   ├── graph.py                 #   LangGraph sub-graph
+│   │   └── nodes/                   #   8 nodes (launch, wait, type, connect, popups, verify)
+│   │
+│   ├── agent2_navigation/           # Agent 2: Navigation
+│   │   ├── graph.py                 #   LangGraph sub-graph
+│   │   └── nodes/                   #   8 nodes (search, collect, match, confirm, click, verify)
+│   │
+│   ├── agent3_filter/               # Agent 3: Filter
+│   │   ├── graph.py                 #   LangGraph sub-graph
+│   │   └── nodes/                   #   6 nodes (panel, checkboxes, date range, dates, generate)
+│   │
+│   └── agent4_download/             # Agent 4: Download
+│       ├── graph.py                 #   LangGraph sub-graph
+│       └── nodes/                   #   5 nodes (export, popup, save, decline, close)
+│
+├── automation/                      # UI automation utilities
+│   ├── window_manager.py            #   Window detection and focus (pygetwindow + UIAWrapper)
+│   ├── keyboard_mouse.py            #   Typing and clicking helpers
+│   ├── popup_handler.py             #   Popup detection and dismissal
+│   ├── search_handler.py            #   Search bar interaction
+│   ├── ui_tree_reader.py            #   Navigation tree traversal
+│   ├── screenshot.py                #   Screen capture
+│   └── uia_retry.py                 #   Retried UIA element search
+│
+├── vision/                          # Computer vision
+│   ├── highlight_detector.py        #   OpenCV highlight detection in search results
+│   └── gemini_verifier.py           #   Gemini API visual verification
+│
+├── config/                          # Configuration
+│   ├── settings.py                  #   Pydantic settings from .env
+│   └── report_loader.py             #   reports.json loader
+│
+├── api/                             # REST API
+│   ├── main.py                      #   FastAPI app
+│   ├── routes.py                    #   Endpoint definitions
+│   └── schemas.py                   #   Request/response models
+│
+├── logs/                            # Runtime logs
+│   ├── agent.log                    #   Application log
+│   └── screenshots/                 #   Debug screenshots
+│
+├── download/                        # Exported report files
+└── tests/                           # Test suite
+```
+
+## How It Works
+
+### Agent 1: Login
+
+Launches the Excellon ClickOnce application, waits for the login dialog, types credentials into the User Name and Password fields, and presses Connect. Handles 0-N post-login popups (Login Confirmation, Application Installation Alert, HSRP Compliance) by clicking Yes/OK. Detects if the user is already logged in and skips to verification.
+
+### Agent 2: Navigation
+
+Types the report name into the search bar, then uses a 3-layer matching strategy to find the correct item:
+
+1. **OpenCV highlight detection** -- finds highlighted regions in the search results panel
+2. **Width-based disambiguation** -- the exact match has all words highlighted (widest region)
+3. **Gemini row-OCR** -- when widths are similar, crops each row and asks Gemini to confirm the exact text match
+
+Double-clicks the identified item to open the report.
+
+### Agent 3: Filter
+
+Opens the filter panel, toggles configured checkboxes (e.g., Show Taxes), selects "Custom" from the Date Range dropdown, enters From/To dates, and presses Generate Report. Waits for data to load before proceeding.
+
+### Agent 4: Download
+
+Clicks the XLSX File export button, presses OK on the Export Options popup, handles the Save As dialog (renames file with date, dealer code, branch code, and report key), clicks Yes on overwrite confirmation if needed, declines the "open file?" prompt, and closes the application with Alt+F4.
+
+**Output filename format:**
+```
+DD-MM-YYYY, DEALER_CODE, BRANCH_CODE, report_key, from_date to to_date.xlsx
 ```
 
 ## Adding New Reports
 
-To add a new report to the system:
-
-1. Open `reports.json`
-2. Add a new entry with a unique key:
+1. Add an entry to `reports.json`:
 
 ```json
 {
-  "your_new_report_key": {
-    "module": "Module Name",
-    "folders": ["Reports", "Category", "Subcategory"],
-    "report_name": "Exact Report Name As Shown in UI",
+  "your_report_key": {
+    "module": "SALES MODULE",
+    "folders": ["REPORTS", "CATEGORY", "Subcategory"],
+    "report_name": "Exact Report Name",
     "filters": ["Show Taxes"]
   }
 }
 ```
 
-3. The `module` field must match the top-level module name in Excellon's navigation tree
-4. The `folders` array must list each folder level in order from the module down to (but not including) the report itself
-5. The `report_name` must be an **exact match** (case-sensitive) of the report's display name
-6. The `filters` array is optional — omit it or set to `[]` if no checkboxes need to be toggled
-
-Then run with:
+2. Run with the new key:
 
 ```bash
-python main.py --run --report-key your_new_report_key
+python main.py --run --report-key your_report_key
 ```
+
+The `report_name` must exactly match the text shown in Excellon's navigation tree. The `filters` array lists checkbox labels to enable -- omit or set to `[]` if none are needed.
 
 ## Troubleshooting
 
-### Application won't launch
+| Problem | Solution |
+|---|---|
+| Application won't launch | Verify `APP_EXE_PATH` points to the correct `.appref-ms` or `.exe` file |
+| Login fails / hangs | Check `EXCELLON_USERNAME` and `EXCELLON_PASSWORD` in `.env` |
+| Navigation can't find report | Verify `report_name` in `reports.json` exactly matches the UI text |
+| Export popup not dismissed | The node presses Enter after 1s -- ensure the popup appears before then |
+| Save As dialog not found | Check that `SAVE_PATH` directory exists and is writable |
+| Gemini verification fails | Verify `GEMINI_API_KEY` is valid and has API access |
+| Agent hangs indefinitely | Never use `app.top_window()` or `app.windows()` -- use `get_main_window()` instead |
 
-- Verify `APP_EXE_PATH` in `.env` points to the correct Excellon executable
-- Ensure Excellon is properly installed
-- Check `logs/agent.log` for detailed error messages
+**Debug mode:** Set `LOG_LEVEL=DEBUG` in `.env` for verbose output. Debug screenshots are saved to `logs/screenshots/` on failures.
 
-### Login fails
-
-- Verify `EXCELLON_USERNAME` and `EXCELLON_PASSWORD` in `.env`
-- Check if the application has a CAPTCHA or additional security
-- Look for debug screenshots in `logs/screenshots/`
-
-### Navigation can't find the report
-
-- Verify the `report_name` in `reports.json` exactly matches the UI text
-- Check the `folders` path matches the actual tree structure
-- Enable `LOG_LEVEL=DEBUG` in `.env` for detailed tree traversal logs
-
-### Export fails
-
-- Ensure `SAVE_PATH` folder exists before running
-- Check if Excellon requires specific export permissions
-- Look for popup handling failures in the logs
-
-### Gemini verification fails
-
-- Verify `GEMINI_API_KEY` is valid
-- The system fails safe (returns False) on Gemini errors
-- Check network connectivity for API access
-
-### General debugging
-
-- Set `LOG_LEVEL=DEBUG` in `.env` for maximum verbosity
-- Debug screenshots are saved to `logs/screenshots/` when `LOG_LEVEL=DEBUG`
-- All actions are logged to `logs/agent.log` with timestamps
+**Logs:** All actions are logged to `logs/agent.log` with timestamps.
 
 ## Running Tests
 
@@ -254,8 +330,12 @@ python main.py --run --report-key your_new_report_key
 python -m pytest tests/ -v
 ```
 
-Or individual test files:
+Individual test files:
 
 ```bash
 python -m pytest tests/test_agent2_navigation.py -v
 ```
+
+## License
+
+Proprietary. Internal use only.

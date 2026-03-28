@@ -2,123 +2,73 @@
 
 import time
 
+import pyautogui
 from loguru import logger
 
 from orchestrator.state import GlobalState
 from automation.screenshot import capture_screen, save_debug_screenshot
+from automation.uia_retry import find_all_by_text_in_panel
 
 
 def select_date_range_custom_node(state: GlobalState) -> GlobalState:
-    """Open the Date Range dropdown and select 'Custom'.
-
-    This enables manual entry of From and To dates.
-    """
+    """Open the Date Range dropdown and select 'Custom'."""
     logger.info("[Agent3] Node: select_date_range_custom — entering")
     try:
         app = state["app_handle"]
-        main_win = app.top_window()
+        from automation.window_manager import get_main_window
+        main_win = get_main_window(app)
 
-        # Find the Date Range dropdown
-        date_combo = None
-        combos = main_win.descendants(control_type="ComboBox")
-        for combo in combos:
-            try:
-                name = (combo.element_info.name or "").lower()
-                text = combo.window_text().lower()
-                auto_id = (combo.element_info.automation_id or "").lower()
-                if "date" in name or "range" in name or "date" in auto_id:
-                    date_combo = combo
+        time.sleep(2.0)
+
+        # 1. Find Date Range control with retried search
+        # Search for multiple known texts — use whichever is found
+        search_texts = ["Date Range", "Month To Date", "Week To Date",
+                        "Year To Date", "Custom", "Previous Month"]
+        found = find_all_by_text_in_panel(main_win, search_texts, retries=5, delay=2.0)
+
+        if not found:
+            state["error"] = "Date Range control not found after retries."
+            logger.error("[Agent3] {}", state["error"])
+            return state
+
+        logger.info("[Agent3] Found filter panel controls: {}", list(found.keys()))
+
+        # Determine which control to click for the dropdown
+        date_ctrl = found.get("Date Range")
+        if date_ctrl is not None:
+            dr = date_ctrl.rectangle()
+            click_x = dr.right - 15
+            click_y = (dr.top + dr.bottom) // 2
+            logger.info("[Agent3] Clicking Date Range dropdown at ({},{}).", click_x, click_y)
+        else:
+            # Use any found date range value as the dropdown itself
+            for key in ["Month To Date", "Week To Date", "Year To Date",
+                        "Previous Month", "Custom"]:
+                if key in found:
+                    ctrl = found[key]
+                    r = ctrl.rectangle()
+                    click_x = r.right - 15
+                    click_y = (r.top + r.bottom) // 2
+                    logger.info("[Agent3] Clicking '{}' dropdown at ({},{}).", key, click_x, click_y)
                     break
-            except Exception:
-                continue
 
-        if date_combo is None:
-            state["error"] = "Date Range dropdown not found in filter panel."
-            logger.error("[Agent3] {}", state["error"])
-            try:
-                save_debug_screenshot(capture_screen(), "date_range_not_found")
-            except Exception:
-                pass
-            return state
+        # 2. Click the dropdown to open it
+        pyautogui.click(click_x, click_y)
+        time.sleep(1.0)
 
-        # Click to open dropdown
-        date_combo.click_input()
+        # 3. Select 'Custom' — it's the last item in the dropdown.
+        # Use keyboard: End key jumps to last item, Enter selects it.
+        pyautogui.press("end")
         time.sleep(0.3)
-        logger.debug("Date Range dropdown clicked.")
+        pyautogui.press("enter")
+        logger.info("[Agent3] Selected 'Custom' via keyboard (End + Enter).")
 
-        # Find and click 'Custom' option
-        custom_found = False
+        time.sleep(1.0)
 
-        # Strategy 1: Look for ListItem children
-        try:
-            list_items = date_combo.descendants(control_type="ListItem")
-            for item in list_items:
-                try:
-                    text = item.window_text().strip().lower()
-                    if "custom" in text:
-                        item.click_input()
-                        custom_found = True
-                        logger.info("Selected 'Custom' from dropdown (ListItem).")
-                        break
-                except Exception:
-                    continue
-        except Exception:
-            pass
-
-        # Strategy 2: Look in expanded list popup
-        if not custom_found:
-            try:
-                from pywinauto import Desktop
-                all_windows = Desktop(backend="uia").windows()
-                for win in all_windows:
-                    try:
-                        items = win.descendants(control_type="ListItem")
-                        for item in items:
-                            try:
-                                text = item.window_text().strip().lower()
-                                if "custom" in text:
-                                    item.click_input()
-                                    custom_found = True
-                                    logger.info("Selected 'Custom' from popup list.")
-                                    break
-                            except Exception:
-                                continue
-                        if custom_found:
-                            break
-                    except Exception:
-                        continue
-            except Exception:
-                pass
-
-        # Strategy 3: Type 'Custom' into the combo
-        if not custom_found:
-            try:
-                date_combo.type_keys("Custom{ENTER}")
-                custom_found = True
-                logger.info("Typed 'Custom' into Date Range combo.")
-            except Exception:
-                pass
-
-        if not custom_found:
-            state["error"] = "Could not select 'Custom' from Date Range dropdown."
-            logger.error("[Agent3] {}", state["error"])
-            try:
-                save_debug_screenshot(capture_screen(), "custom_not_found")
-            except Exception:
-                pass
-            return state
-
-        time.sleep(0.3)
-
-        # Verify Custom is selected
-        try:
-            current = date_combo.window_text().strip().lower()
-            if "custom" in current:
-                logger.info("Verified: 'Custom' is now selected.")
-            else:
-                logger.warning("Date Range value: '{}' — may not be Custom.", current)
-        except Exception:
-            pass
+        # 4. Press TAB to unlock From/To date fields
+        logger.info("[Agent3] Pressing TAB to unlock date fields.")
+        pyautogui.press("tab")
+        time.sleep(0.5)
 
         state["date_range_set"] = True
         logger.info("[Agent3] Node: select_date_range_custom — completed")

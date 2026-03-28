@@ -17,10 +17,10 @@ class DownloadState(TypedDict, total=False):
     to_date: str
 
     # Download steps
-    xlsx_clicked: bool
-    hyperlinks_unchecked: bool
-    export_ok_pressed: bool
+    export_clicked: bool
+    download_extension: str
+    export_popup_dismissed: bool
     filename_built: str | None
     file_saved: bool
-    export_popup_closed: bool
-    app_quit: bool
+    open_file_declined: bool
+    app_closed: bool

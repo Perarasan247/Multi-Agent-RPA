@@ -1,68 +1,56 @@
-"""LangGraph state machine for Agent 4: Download."""
+"""LangGraph state machine for Agent 4: Download.
+
+Sequence:
+1. click_export_button   — Click XLSX/CSV/PDF button in toolbar
+2. dismiss_export_popup  — Uncheck hyperlinks + press OK (Excel only)
+3. handle_save_as        — Rename file, navigate to folder, click Save
+4. decline_open_file     — Decline 'open file?' popup
+5. close_application     — Alt+F4 + confirm exit
+"""
 
 from langgraph.graph import StateGraph, END
 from orchestrator.state import GlobalState
 
-from agents.agent4_download.nodes.click_xlsx_export import click_xlsx_export_node
-from agents.agent4_download.nodes.uncheck_hyperlinks import uncheck_hyperlinks_node
-from agents.agent4_download.nodes.press_ok_export import press_ok_export_node
-from agents.agent4_download.nodes.handle_file_explorer import handle_file_explorer_node
-from agents.agent4_download.nodes.build_filename import build_filename_node
-from agents.agent4_download.nodes.press_save import press_save_node
-from agents.agent4_download.nodes.handle_export_popup import handle_export_popup_node
-from agents.agent4_download.nodes.quit_application import quit_application_node
+from agents.agent4_download.nodes.click_export_button import click_export_button_node
+from agents.agent4_download.nodes.dismiss_export_popup import dismiss_export_popup_node
+from agents.agent4_download.nodes.handle_save_as import handle_save_as_node
+from agents.agent4_download.nodes.decline_open_file import decline_open_file_node
+from agents.agent4_download.nodes.close_application import close_application_node
 
 
 def _route(state: GlobalState) -> str:
-    """Route based on error state."""
     if state.get("error"):
         return "end"
     return "continue"
 
 
 def build_download_graph() -> StateGraph:
-    """Build the Agent 4 download sub-graph."""
     graph = StateGraph(GlobalState)
 
-    graph.add_node("click_xlsx_export", click_xlsx_export_node)
-    graph.add_node("uncheck_hyperlinks", uncheck_hyperlinks_node)
-    graph.add_node("press_ok_export", press_ok_export_node)
-    graph.add_node("handle_file_explorer", handle_file_explorer_node)
-    graph.add_node("build_filename", build_filename_node)
-    graph.add_node("press_save", press_save_node)
-    graph.add_node("handle_export_popup", handle_export_popup_node)
-    graph.add_node("quit_application", quit_application_node)
+    graph.add_node("click_export_button", click_export_button_node)
+    graph.add_node("dismiss_export_popup", dismiss_export_popup_node)
+    graph.add_node("handle_save_as", handle_save_as_node)
+    graph.add_node("decline_open_file", decline_open_file_node)
+    graph.add_node("close_application", close_application_node)
 
-    graph.set_entry_point("click_xlsx_export")
+    graph.set_entry_point("click_export_button")
 
     graph.add_conditional_edges(
-        "click_xlsx_export", _route,
-        {"end": END, "continue": "uncheck_hyperlinks"},
+        "click_export_button", _route,
+        {"end": END, "continue": "dismiss_export_popup"},
     )
     graph.add_conditional_edges(
-        "uncheck_hyperlinks", _route,
-        {"end": END, "continue": "press_ok_export"},
+        "dismiss_export_popup", _route,
+        {"end": END, "continue": "handle_save_as"},
     )
     graph.add_conditional_edges(
-        "press_ok_export", _route,
-        {"end": END, "continue": "handle_file_explorer"},
+        "handle_save_as", _route,
+        {"end": END, "continue": "decline_open_file"},
     )
     graph.add_conditional_edges(
-        "handle_file_explorer", _route,
-        {"end": END, "continue": "build_filename"},
+        "decline_open_file", _route,
+        {"end": END, "continue": "close_application"},
     )
-    graph.add_conditional_edges(
-        "build_filename", _route,
-        {"end": END, "continue": "press_save"},
-    )
-    graph.add_conditional_edges(
-        "press_save", _route,
-        {"end": END, "continue": "handle_export_popup"},
-    )
-    graph.add_conditional_edges(
-        "handle_export_popup", _route,
-        {"end": END, "continue": "quit_application"},
-    )
-    graph.add_edge("quit_application", END)
+    graph.add_edge("close_application", END)
 
     return graph

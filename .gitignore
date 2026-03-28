@@ -101,3 +101,13 @@ dist/
 !api/
 !automation/
 !*.py
+
+# ==========================================
+
+# Downloaded reports and screenshots
+
+# ==========================================
+
+download/
+logs/screenshots/
+assets/

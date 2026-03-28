@@ -66,13 +66,12 @@ def _build_initial_state(
         "to_date": to_date or settings.filter_to_date,
         "report_generated": False,
         # Agent 4
-        "xlsx_clicked": False,
-        "hyperlinks_unchecked": False,
-        "export_ok_pressed": False,
+        "export_clicked": False,
+        "export_popup_dismissed": False,
         "filename_built": None,
         "file_saved": False,
-        "export_popup_closed": False,
-        "app_quit": False,
+        "open_file_declined": False,
+        "app_closed": False,
     }
     return state
 

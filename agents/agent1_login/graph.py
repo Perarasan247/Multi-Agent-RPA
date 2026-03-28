@@ -20,6 +20,15 @@ def _route(state: GlobalState) -> str:
     return "continue"
 
 
+def _route_after_login_screen(state: GlobalState) -> str:
+    """Skip the full login flow if already logged in."""
+    if state.get("error"):
+        return "end"
+    if state.get("already_logged_in"):
+        return "already_logged_in"
+    return "continue"
+
+
 def build_login_graph() -> StateGraph:
     """Build the Agent 1 login sub-graph."""
     graph = StateGraph(GlobalState)
@@ -40,8 +49,8 @@ def build_login_graph() -> StateGraph:
         {"end": END, "continue": "wait_for_login_screen"},
     )
     graph.add_conditional_edges(
-        "wait_for_login_screen", _route,
-        {"end": END, "continue": "type_credentials"},
+        "wait_for_login_screen", _route_after_login_screen,
+        {"end": END, "continue": "type_credentials", "already_logged_in": "verify_home_screen"},
     )
     graph.add_conditional_edges(
         "type_credentials", _route,

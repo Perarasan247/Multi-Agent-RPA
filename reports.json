@@ -1,64 +1,60 @@
 {
-  "spareparts_sales_statement": {
-    "module": "SPARE PARTS",
+  "sale_statement": {
+    "module": "SALES MODULE",
     "folders": [
       "REPORTS",
       "SALES",
-      "STATEMENTS"
+      "Statements"
     ],
-    "report_name": "Sale statement",
+    "report_name": "Sale Statement",
     "filters": [
       "Show Taxes",
       "Show Tax Detail"
     ]
   },
-  "spareparts_sale_invoice_statement": {
-    "module": "SPARE PARTS",
-    "folders": [
-      "REPORTS",
-      "SALES",
-      "STATEMENTS"
-    ],
-    "report_name": "Sale invoice statement new"
-  },
-  "spareparts_sale_return_statement": {
-    "module": "SPARE PARTS",
-    "folders": [
-      "REPORTS",
-      "SALES",
-      "STATEMENTS"
-    ],
-    "report_name": "Sale return statement"
-  },
-  "spareparts_purchase_statement": {
-    "module": "SPARE PARTS",
+  "purchase_statement": {
+    "module": "SALES MODULE",
     "folders": [
       "REPORTS",
       "PROCUREMENT",
-      "STATEMENTS"
+      "Statements"
     ],
-    "report_name": "Purchase statement",
+    "report_name": "Purchase Statement",
     "filters": [
       "Show Taxes",
       "Show Tax Detail"
     ]
   },
-  "spareparts_purchase_invoice_statement": {
-    "module": "SPARE PARTS",
+  "purchase_invoice_statement": {
+    "module": "SALES MODULE",
     "folders": [
       "REPORTS",
       "PROCUREMENT",
-      "STATEMENTS"
+      "Statements"
     ],
-    "report_name": "Purchase Invoice statement"
+    "report_name": "Purchase Invoice Statement"
   },
-  "spareparts_stock_valuation": {
-    "module": "SPARE PARTS",
+  "stock_valuation": {
+    "module": "SALES MODULE",
     "folders": [
       "REPORTS",
       "INVENTORY",
-      "STOCKS"
+      "STOCK"
     ],
-    "report_name": "Stock valuation"
+    "report_name": "Stock Valuation"
+  },
+  "hsrp_installation_report": {
+    "module": "SALES MODULE",
+    "folders": [
+      "HSRP"
+    ],
+    "report_name": "HSRP installation report"
+  },
+  "hsrp_pending_chassis_report": {
+    "module": "SALES MODULE",
+    "folders": [
+      "HSRP"
+    ],
+    "report_name": "HSRP pending chassis report"
   }
 }

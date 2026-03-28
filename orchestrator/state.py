@@ -18,6 +18,8 @@ class GlobalState(TypedDict, total=False):
     # Agent 1: Login
     app_launched: bool
     login_screen_ready: bool
+    login_window: Any  # pywinauto window wrapper for the login dialog
+    already_logged_in: bool
     credentials_typed: bool
     connect_pressed: bool
     pre_popups_cleared: bool
@@ -46,10 +48,10 @@ class GlobalState(TypedDict, total=False):
     report_generated: bool
 
     # Agent 4: Download
-    xlsx_clicked: bool
-    hyperlinks_unchecked: bool
-    export_ok_pressed: bool
+    export_clicked: bool
+    download_extension: str
+    export_popup_dismissed: bool
     filename_built: str | None
     file_saved: bool
-    export_popup_closed: bool
-    app_quit: bool
+    open_file_declined: bool
+    app_closed: bool

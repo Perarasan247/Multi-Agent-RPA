@@ -21,7 +21,8 @@ def get_left_panel(app: Application) -> Any:
     Raises:
         RuntimeError: If the left panel cannot be found.
     """
-    main_win = app.top_window()
+    from automation.window_manager import get_main_window
+    main_win = get_main_window(app)
 
     # Strategy 1: Look for Tree or TreeView control
     try:

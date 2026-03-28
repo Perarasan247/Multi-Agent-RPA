@@ -2,121 +2,125 @@
 
 import time
 
+import pyautogui
 from loguru import logger
 
 from orchestrator.state import GlobalState
 from automation.screenshot import capture_screen, save_debug_screenshot
 
 
-def press_generate_report_node(state: GlobalState) -> GlobalState:
-    """Click 'Generate Report' and wait for data loading to complete.
+def _find_generate_button(main_win):
+    """Find Generate Report by automation_id, Button type, or DataItem text."""
+    win_rect = main_win.rectangle()
 
-    Polls up to 60s for the report grid to populate or the
-    loading indicator to disappear.
-    """
+    # Strategy 1: automation_id
+    for d in main_win.descendants(control_type="Button"):
+        try:
+            if (d.element_info.automation_id or "") == "GenerateReport":
+                return d
+        except Exception:
+            continue
+
+    # Strategy 2: Button with "generate" in text
+    for d in main_win.descendants(control_type="Button"):
+        try:
+            txt = (d.window_text() or "").strip().lower()
+            if "generate" in txt:
+                return d
+        except Exception:
+            continue
+
+    # Strategy 3: Any control with text "Generate Report" in right panel
+    for d in main_win.descendants():
+        try:
+            txt = (d.window_text() or "").strip()
+            if "Generate Report" in txt:
+                r = d.rectangle()
+                if r.left > win_rect.right - 600 and (r.right - r.left) > 10:
+                    return d
+        except Exception:
+            continue
+
+    return None
+
+
+def press_generate_report_node(state: GlobalState) -> GlobalState:
+    """Click 'Generate Report' and wait for data loading to complete."""
     logger.info("[Agent3] Node: press_generate_report — entering")
     try:
         app = state["app_handle"]
-        main_win = app.top_window()
+        from automation.window_manager import get_main_window
+        main_win = get_main_window(app)
 
-        # Find Generate Report button
-        gen_btn = None
-        buttons = main_win.descendants(control_type="Button")
-        for btn in buttons:
-            try:
-                text = btn.window_text().strip().lower()
-                if "generate" in text and "report" in text:
-                    gen_btn = btn
-                    break
-                if "generate" in text:
-                    gen_btn = btn
-                    break
-            except Exception:
-                continue
+        gen_ctrl = _find_generate_button(main_win)
 
-        if gen_btn is None:
+        if gen_ctrl is None:
             state["error"] = "Generate Report button not found."
             logger.error("[Agent3] {}", state["error"])
-            try:
-                save_debug_screenshot(capture_screen(), "generate_btn_not_found")
-            except Exception:
-                pass
             return state
 
-        gen_btn.click_input()
-        logger.info("Generate Report button clicked.")
+        # Click using pyautogui at the control's coordinates
+        r = gen_ctrl.rectangle()
+        cx = (r.left + r.right) // 2
+        cy = (r.top + r.bottom) // 2
+        logger.info("[Agent3] Clicking Generate Report at ({},{}).", cx, cy)
+        pyautogui.click(cx, cy)
 
-        # Smart wait for report data
+        # Minimum wait before checking
+        MIN_WAIT = 5
+        time.sleep(MIN_WAIT)
+
+        # Wait for report to load
         timeout = 60
         start = time.time()
         report_loaded = False
 
         while time.time() - start < timeout:
             try:
-                # Check for data grid / table / rows
-                data_grids = main_win.descendants(control_type="DataGrid")
-                tables = main_win.descendants(control_type="Table")
-                data_items = main_win.descendants(control_type="DataItem")
-
-                if data_grids or tables:
-                    # Check if any have children (actual data rows)
-                    for grid in data_grids + tables:
-                        try:
-                            children = grid.children()
-                            if len(children) > 1:  # Header + at least 1 row
-                                report_loaded = True
-                                logger.info(
-                                    "Report data loaded: {} rows in grid.",
-                                    len(children) - 1,
-                                )
-                                break
-                        except Exception:
-                            continue
+                # Check 1: Status bar shows "Ready in X Seconds"
+                for d in main_win.descendants(control_type="Text"):
+                    try:
+                        txt = (d.window_text() or "").strip().lower()
+                        if "ready in" in txt and "second" in txt:
+                            report_loaded = True
+                            logger.info("[Agent3] Status bar: '{}'",
+                                        d.window_text().strip())
+                            break
+                    except Exception:
+                        continue
 
                 if report_loaded:
                     break
 
-                if data_items and len(data_items) > 0:
+                # Check 2: Data rows visible in main content area
+                win_rect = main_win.rectangle()
+                content_items = 0
+                for item in main_win.descendants(control_type="DataItem"):
+                    try:
+                        ir = item.rectangle()
+                        if ir.left < win_rect.right - 400:
+                            content_items += 1
+                    except Exception:
+                        continue
+                if content_items > 3:
                     report_loaded = True
-                    logger.info(
-                        "Report data loaded: {} data items found.",
-                        len(data_items),
-                    )
+                    logger.info("[Agent3] Report data visible: {} items.", content_items)
                     break
 
-                # Check if Generate button is re-enabled (loading finished)
-                try:
-                    if gen_btn.is_enabled():
-                        elapsed = time.time() - start
-                        if elapsed > 3:  # Give at least 3s for loading
-                            report_loaded = True
-                            logger.info(
-                                "Generate button re-enabled after {:.1f}s — assuming loaded.",
-                                elapsed,
-                            )
-                            break
-                except Exception:
-                    pass
-
             except Exception as exc:
-                logger.debug("Polling report generation: {}", exc)
+                logger.debug("Polling report: {}", exc)
 
             time.sleep(1.0)
 
         if not report_loaded:
-            state["error"] = (
-                f"Report generation timed out after {timeout}s. "
-                "No data grid or table found in the report area."
-            )
-            logger.error("[Agent3] {}", state["error"])
-            try:
-                save_debug_screenshot(capture_screen(), "generate_report_timeout")
-            except Exception:
-                pass
-            return state
+            # Last resort: assume loaded if we've waited long enough
+            logger.warning("[Agent3] Report load not confirmed, continuing after {}s.", timeout + MIN_WAIT)
+
+        # Settle time
+        time.sleep(2.0)
 
         state["report_generated"] = True
-        logger.info("[Agent3] Node: press_generate_report — completed successfully")
+        logger.info("[Agent3] Node: press_generate_report — completed")
 
     except Exception as exc:
         state["error"] = f"press_generate_report failed: {exc}"

@@ -240,7 +240,12 @@ def find_all_highlight_coords(
     ]
 
     seen_y: list[int] = []
-    results: list[tuple[int, int, float]] = []  # (screen_x, screen_y, area)
+    # Each result: (screen_cx, screen_cy, area, highlight_width)
+    # highlight_width = pixel span of the merged highlight on that row.
+    # The EXACT match has ALL words highlighted as one merged region → widest.
+    # Non-exact matches have unhighlighted words in the middle that prevent
+    # merging, so only the FIRST chunk per row survives deduplication → narrower.
+    results: list[tuple[int, int, float, int]] = []
 
     for color_name, lo, hi in color_ranges:
         mask = cv2.inRange(hsv, lo, hi)
@@ -259,8 +264,26 @@ def find_all_highlight_coords(
             if any(abs(cy - ey) < 15 for ey in seen_y):
                 continue
             seen_y.append(cy)
-            results.append((cx, cy, area))
+            results.append((cx, cy, area, bw))
 
     results.sort(key=lambda r: r[1])  # top-to-bottom order
-    logger.debug("find_all_highlight_coords: {} distinct regions found.", len(results))
+
+    # Remove isolated false positives: real search results are always a tight
+    # cluster (row-height gaps of ~15–20 px).  Any region more than 50 px below
+    # the previous one is almost certainly noise (scrollbar thumb, section divider,
+    # collapsed-module header, etc.).  Walk from the top and stop at the first gap.
+    if len(results) >= 2:
+        cluster: list[tuple[int, int, float]] = [results[0]]
+        for r in results[1:]:
+            if r[1] - cluster[-1][1] <= 50:
+                cluster.append(r)
+            else:
+                logger.debug(
+                    "find_all_highlight_coords: gap {}px > 50 — dropping {} region(s) as noise.",
+                    r[1] - cluster[-1][1], len(results) - len(cluster),
+                )
+                break
+        results = cluster
+
+    logger.debug("find_all_highlight_coords: {} region(s) after noise filter.", len(results))
     return results

@@ -82,13 +82,12 @@ def run_full_pipeline(
         "to_date": to_date or settings.filter_to_date,
         "report_generated": False,
         # Agent 4
-        "xlsx_clicked": False,
-        "hyperlinks_unchecked": False,
-        "export_ok_pressed": False,
+        "export_clicked": False,
+        "export_popup_dismissed": False,
         "filename_built": None,
         "file_saved": False,
-        "export_popup_closed": False,
-        "app_quit": False,
+        "open_file_declined": False,
+        "app_closed": False,
     }
 
     logger.info("=" * 60)
@@ -152,14 +151,30 @@ def run_single_agent(agent_name: str) -> None:
         "from_date": settings.filter_from_date,
         "to_date": settings.filter_to_date,
         "report_generated": False,
-        "xlsx_clicked": False,
-        "hyperlinks_unchecked": False,
-        "export_ok_pressed": False,
+        "export_clicked": False,
+        "export_popup_dismissed": False,
         "filename_built": None,
         "file_saved": False,
-        "export_popup_closed": False,
-        "app_quit": False,
+        "open_file_declined": False,
+        "app_closed": False,
     }
+
+    # For non-login agents, connect to the already-running Excellon app
+    if agent_name != "login":
+        from automation.window_manager import is_app_running, connect_to_app, focus_window
+        window_title = settings.app_window_title
+        if is_app_running(window_title):
+            app = connect_to_app(window_title)
+            state["app_handle"] = app
+            state["app_launched"] = True
+            try:
+                focus_window(app, window_title)
+            except Exception:
+                pass
+            logger.info("Connected to running Excellon app for agent '{}'", agent_name)
+        else:
+            logger.error("Excellon app is not running. Start it first or run the login agent.")
+            sys.exit(1)
 
     logger.info("Running single agent: {}", agent_name)
 

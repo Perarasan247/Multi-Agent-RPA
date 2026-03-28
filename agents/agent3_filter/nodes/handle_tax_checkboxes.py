@@ -2,66 +2,57 @@
 
 import time
 
+import pyautogui
 from loguru import logger
 
 from orchestrator.state import GlobalState
 from automation.screenshot import capture_screen, save_debug_screenshot
+from automation.uia_retry import find_descendant_by_text
 
 
-def _find_and_check_checkbox(main_win, label: str) -> bool:
-    """Find a checkbox by label and ensure it is checked.
+def _tick_checkbox(window, label: str) -> bool:
+    """Find and tick a checkbox by its label text.
 
-    Args:
-        main_win: The main application window.
-        label: Text label to search for (case-insensitive).
-
-    Returns:
-        True if the checkbox was found and is now checked.
+    Uses retried UIA descendants() search. Works with both CheckBox
+    and DataItem control types across different reports.
+    Handles minor text variations like "Show Tax Detail" vs "Show Tax Details".
     """
-    checkboxes = main_win.descendants(control_type="CheckBox")
-    for cb in checkboxes:
-        try:
-            text = cb.window_text().strip().lower()
-            name = (cb.element_info.name or "").lower()
-            if label.lower() in text or label.lower() in name:
-                # Check current toggle state
-                try:
-                    toggle_state = cb.get_toggle_state()
-                    # 0 = unchecked, 1 = checked, 2 = indeterminate
-                    if toggle_state == 1:
-                        logger.info("Checkbox '{}' already checked.", label)
-                        return True
-                except Exception:
-                    pass
+    # Try exact match first, then with/without trailing 's'
+    candidates = [label]
+    if label.endswith("s"):
+        candidates.append(label[:-1])  # "Show Tax Details" -> "Show Tax Detail"
+    else:
+        candidates.append(label + "s")  # "Show Tax Detail" -> "Show Tax Details"
 
-                # Try legacy state check
-                try:
-                    legacy = cb.legacy_properties()
-                    state_val = legacy.get("State", 0)
-                    # STATE_SYSTEM_CHECKED = 0x10
-                    if state_val & 0x10:
-                        logger.info("Checkbox '{}' already checked (legacy).", label)
-                        return True
-                except Exception:
-                    pass
+    target = None
+    for candidate in candidates:
+        target = find_descendant_by_text(window, candidate, retries=5, delay=2.0)
+        if target is not None:
+            logger.info("[FILTER] Matched '{}' for label '{}'.", candidate, label)
+            break
 
-                # Click to check it
-                cb.click_input()
-                time.sleep(0.3)
-                logger.info("Checkbox '{}' clicked to check.", label)
-                return True
-        except Exception:
-            continue
+    if not target:
+        logger.error("[FILTER] Could not find: '{}'", label)
+        return False
 
-    logger.warning("Checkbox '{}' not found.", label)
-    return False
+    # Read state if possible to avoid unchecking
+    try:
+        if hasattr(target, 'get_toggle_state') and target.get_toggle_state() == 1:
+            logger.info("[FILTER] '{}' is already checked.", label)
+            return True
+    except Exception:
+        pass
+
+    logger.info("[FILTER] Clicking checkbox: '{}'", label)
+    r = target.rectangle()
+    # Click slightly inside the label area to hit the box itself
+    pyautogui.click(r.left + 10, r.top + (r.height() // 2))
+    time.sleep(0.5)
+    return True
 
 
 def handle_tax_checkboxes_node(state: GlobalState) -> GlobalState:
-    """Apply tax filter checkboxes as specified in report config.
-
-    If no filters are configured, this node passes cleanly.
-    """
+    """Apply tax filter checkboxes as specified in report config."""
     logger.info("[Agent3] Node: handle_tax_checkboxes — entering")
     try:
         filters = state.get("filters", [])
@@ -72,17 +63,15 @@ def handle_tax_checkboxes_node(state: GlobalState) -> GlobalState:
             return state
 
         app = state["app_handle"]
-        main_win = app.top_window()
+        from automation.window_manager import get_main_window
+        main_win = get_main_window(app)
 
-        if "Show Taxes" in filters:
-            found = _find_and_check_checkbox(main_win, "Show Tax")
-            if not found:
-                logger.warning("Could not find 'Show Taxes' checkbox.")
+        # Wait for filter panel to fully render
+        time.sleep(5.0)
 
-        if "Show Tax Detail" in filters:
-            found = _find_and_check_checkbox(main_win, "Show Tax Detail")
-            if not found:
-                logger.warning("Could not find 'Show Tax Detail' checkbox.")
+        for label in filters:
+            if not _tick_checkbox(main_win, label):
+                logger.warning("[Agent3] Failed to tick '{}'", label)
 
         state["tax_boxes_handled"] = True
         logger.info("[Agent3] Tax checkboxes handled for filters: {}", filters)

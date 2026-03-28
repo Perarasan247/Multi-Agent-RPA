@@ -6,7 +6,7 @@ from loguru import logger
 
 from orchestrator.state import GlobalState
 from config.settings import settings
-from automation.window_manager import is_app_running, launch_app, connect_to_app
+from automation.window_manager import is_app_running, launch_app, connect_to_app, focus_window
 from automation.screenshot import capture_screen, save_debug_screenshot
 
 
@@ -25,10 +25,16 @@ def launch_app_node(state: GlobalState) -> GlobalState:
 
         # Check if already running
         if is_app_running(window_title):
-            logger.info("App already running, skipping launch.")
+            logger.info("App already running, connecting and bringing to foreground.")
             app = connect_to_app(window_title)
             state["app_handle"] = app
             state["app_launched"] = True
+            # Bring the window to the foreground so it's visible and interactable
+            try:
+                focus_window(app, window_title)
+            except Exception as exc:
+                logger.warning("Could not focus window, continuing: {}", exc)
+            time.sleep(1.0)
             logger.info("[Agent1] Node: launch_app — completed (already running)")
             return state
 
@@ -62,6 +68,11 @@ def launch_app_node(state: GlobalState) -> GlobalState:
         app = connect_to_app(window_title)
         state["app_handle"] = app
         state["app_launched"] = True
+        # Bring the window to the foreground
+        try:
+            focus_window(app, window_title)
+        except Exception as exc:
+            logger.warning("Could not focus window, continuing: {}", exc)
         logger.info("[Agent1] Node: launch_app — completed successfully")
 
     except Exception as exc:

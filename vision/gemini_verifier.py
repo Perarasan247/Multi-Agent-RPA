@@ -119,18 +119,22 @@ def find_item_coordinates_with_gemini(
 
         image_b64 = base64.b64encode(buffer.tobytes()).decode("utf-8")
 
+        words = report_name.strip().split()
+        n_words = len(words)
         prompt = (
-            f"This image shows ONLY the navigation tree of a Windows application "
-            f"(the search bar has been cropped out — do not look for a text input box). "
-            f"I need the tree item (file/leaf node with an icon) whose text is EXACTLY "
+            f"This image shows ONLY the navigation tree panel of a Windows application. "
+            f"The search bar has been cropped out — ignore any text input box. "
+            f"Find the tree item (leaf node with a file icon) whose text is EXACTLY "
             f"'{report_name}' (case-insensitive). "
-            f"If multiple highlighted items exist with similar names, choose the one "
-            f"whose FULL text matches '{report_name}' exactly — not a longer variant "
-            f"(e.g. prefer 'Sales MIS Report' over 'Sales MIS Report New'). "
-            f"The correct item has an orange, yellow, amber, or blue highlight on its text. "
-            f"Return ONLY the center pixel coordinates of that item within THIS image "
-            f"as two integers: x,y (e.g. 95,87). "
-            f"If no exact match is visible, return: NOT_FOUND"
+            f"EXACT means the item text has EXACTLY {n_words} word(s) matching "
+            f"'{report_name}' — no extra words before or after. "
+            f"Examples of what NOT to pick: "
+            f"if the search is 'Purchase Statement', do NOT pick "
+            f"'Purchase Order Statement' or 'Purchase Invoice Statement'. "
+            f"If the search is 'Sales MIS Report', do NOT pick 'Sales MIS Report New'. "
+            f"The correct item has an orange, yellow, amber, or blue highlight. "
+            f"Return ONLY the center pixel coordinates within THIS cropped image as: x,y "
+            f"(e.g. 95,87). If no exact match exists, return: NOT_FOUND"
         )
 
         model = genai.GenerativeModel("gemini-2.0-flash")
