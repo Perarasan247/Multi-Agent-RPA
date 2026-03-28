@@ -72,7 +72,7 @@ APP_EXE_PATH=C:\Users\YourName\Desktop\Excellon Bajaj 5.appref-ms
 APP_WINDOW_TITLE=Excellon
 
 # Login Credentials
-EXCELLON_USERNAME=sales.d10836
+EXCELLON_USERNAME=our_username
 EXCELLON_PASSWORD=your_password
 
 # Report Selection (must match a key in reports.json)
