@@ -4,7 +4,14 @@ import json
 from pathlib import Path
 from loguru import logger
 
-_REPORTS_PATH = Path(__file__).resolve().parent.parent / "reports.json"
+import sys
+
+# When running as a PyInstaller exe, look in the current working directory.
+# When running as a script, look relative to this file.
+if getattr(sys, "frozen", False):
+    _REPORTS_PATH = Path.cwd() / "reports.json"
+else:
+    _REPORTS_PATH = Path(__file__).resolve().parent.parent / "reports.json"
 
 
 def _load_reports() -> dict:
@@ -32,6 +39,9 @@ def get_active_report(report_key: str) -> dict:
         "folders": entry["folders"],
         "report_name": entry["report_name"],
         "filters": entry.get("filters", []),
+        "skip_filters": entry.get("skip_filters", False),
+        "as_on_date_only": entry.get("as_on_date_only", False),
+        "dealer": entry.get("dealer", ""),
     }
     logger.info(
         "Loaded report config: {} in {} > {}",
@@ -40,6 +50,11 @@ def get_active_report(report_key: str) -> dict:
         " > ".join(result["folders"]),
     )
     return result
+
+
+def get_all_report_keys() -> list[str]:
+    """Return all report keys defined in reports.json, in order."""
+    return list(_load_reports().keys())
 
 
 def get_filters(report_key: str) -> list[str]:

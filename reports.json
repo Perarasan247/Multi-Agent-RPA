@@ -1,6 +1,6 @@
 {
   "sale_statement": {
-    "module": "SALES MODULE",
+    "module": "Sales",
     "folders": [
       "REPORTS",
       "SALES",
@@ -13,7 +13,7 @@
     ]
   },
   "purchase_statement": {
-    "module": "SALES MODULE",
+    "module": "Sales",
     "folders": [
       "REPORTS",
       "PROCUREMENT",
@@ -26,7 +26,7 @@
     ]
   },
   "purchase_invoice_statement": {
-    "module": "SALES MODULE",
+    "module": "Sales",
     "folders": [
       "REPORTS",
       "PROCUREMENT",
@@ -35,26 +35,130 @@
     "report_name": "Purchase Invoice Statement"
   },
   "stock_valuation": {
-    "module": "SALES MODULE",
+    "module": "Sales",
     "folders": [
       "REPORTS",
       "INVENTORY",
       "STOCK"
     ],
-    "report_name": "Stock Valuation"
+    "report_name": "Stock Valuation",
+    "as_on_date_only": true
   },
   "hsrp_installation_report": {
-    "module": "SALES MODULE",
+    "module": "Sales",
     "folders": [
       "HSRP"
     ],
     "report_name": "HSRP installation report"
   },
   "hsrp_pending_chassis_report": {
-    "module": "SALES MODULE",
+    "module": "Sales",
     "folders": [
       "HSRP"
     ],
-    "report_name": "HSRP pending chassis report"
+    "report_name": "HSRP pending chassis report",
+    "dealer": "AAKASH AUTOMOBILES PVT LTD"
+  },
+  "spareparts_sales_statement": {
+    "module": "Spare Parts",
+    "folders": [
+      "REPORTS",
+      "SALES",
+      "STATEMENTS"
+    ],
+    "report_name": "Sale statement",
+    "filters": [
+      "Show Taxes",
+      "Show Tax Detail"
+    ]
+  },
+  "spareparts_sale_invoice_statement": {
+    "module": "Spare Parts",
+    "folders": [
+      "REPORTS",
+      "SALES",
+      "STATEMENTS"
+    ],
+    "report_name": "Sale invoice statement new"
+  },
+  "spareparts_sale_return_statement": {
+    "module": "Spare Parts",
+    "folders": [
+      "REPORTS",
+      "SALES",
+      "STATEMENTS"
+    ],
+    "report_name": "Sale return statement"
+  },
+  "spareparts_purchase_statement": {
+    "module": "Spare Parts",
+    "folders": [
+      "REPORTS",
+      "PROCUREMENT",
+      "STATEMENTS"
+    ],
+    "report_name": "Purchase statement",
+    "filters": [
+      "Show Taxes",
+      "Show Tax Detail"
+    ]
+  },
+  "spareparts_purchase_invoice_statement": {
+    "module": "Spare Parts",
+    "folders": [
+      "REPORTS",
+      "PROCUREMENT",
+      "STATEMENTS"
+    ],
+    "report_name": "Purchase Invoice statement"
+  },
+  "spareparts_stock_valuation": {
+    "module": "Spare Parts",
+    "folders": [
+      "REPORTS",
+      "INVENTORY",
+      "STOCKS"
+    ],
+    "report_name": "Stock valuation",
+    "as_on_date_only": true
+  },
+  "service_repair_order_sale_statement": {
+    "module": "Service",
+    "folders": [
+      "REPORTS",
+      "SERVICE"
+    ],
+    "report_name": "Repair order sale statement"
+  },
+  "service_job_card_bill_statement": {
+    "module": "Service",
+    "folders": [
+      "REPORTS",
+      "SERVICE"
+    ],
+    "report_name": "Job card bill statement"
+  },
+  "service_job_card_bill_summary_new": {
+    "module": "Service",
+    "folders": [
+      "REPORTS",
+      "SUMMARY"
+    ],
+    "report_name": "Job card Bill summary new"
+  },
+  "service_sales_mis_report": {
+    "module": "Service",
+    "folders": [
+      "REPORTS",
+      "SUMMARY"
+    ],
+    "report_name": "Sales MIS report"
+  },
+  "einvoice_statement": {
+    "module": "E-Invoice",
+    "folders": [
+      "Reports"
+    ],
+    "report_name": "E-Invoice Statement"
   }
 }

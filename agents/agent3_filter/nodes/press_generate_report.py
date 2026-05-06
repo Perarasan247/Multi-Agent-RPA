@@ -66,25 +66,49 @@ def press_generate_report_node(state: GlobalState) -> GlobalState:
         logger.info("[Agent3] Clicking Generate Report at ({},{}).", cx, cy)
         pyautogui.click(cx, cy)
 
-        # Minimum wait before checking
-        MIN_WAIT = 5
+        # Minimum wait before checking — give Excellon time to fire the query
+        MIN_WAIT = 3
         time.sleep(MIN_WAIT)
 
-        # Wait for report to load
-        timeout = 60
+        # Long-running reports can take several minutes. We poll until
+        # the status bar reports "Ready in X Seconds" (data loaded) or
+        # data rows appear in the content area. Hard cap at 10 minutes.
+        MAX_TIMEOUT_SEC = 600           # 10 minutes — covers heavy reports
+        POLL_INTERVAL_SEC = 2.0
+        PROGRESS_LOG_INTERVAL_SEC = 30  # tell the user we're still alive
+
         start = time.time()
+        last_progress_log = start
         report_loaded = False
 
-        while time.time() - start < timeout:
+        while time.time() - start < MAX_TIMEOUT_SEC:
             try:
+                # Check 0: "No data" popup — click OK and abort
+                for d in main_win.descendants(control_type="Text"):
+                    try:
+                        txt = (d.window_text() or "").strip().lower()
+                        if "no data" in txt or "return no data" in txt:
+                            logger.warning("[Agent3] 'No data' popup detected.")
+                            pyautogui.press("enter")
+                            time.sleep(1.0)
+                            state["error"] = (
+                                "Report returned no data for the selected filters/date range."
+                            )
+                            logger.error("[Agent3] {}", state["error"])
+                            return state
+                    except Exception:
+                        continue
+
                 # Check 1: Status bar shows "Ready in X Seconds"
                 for d in main_win.descendants(control_type="Text"):
                     try:
                         txt = (d.window_text() or "").strip().lower()
                         if "ready in" in txt and "second" in txt:
                             report_loaded = True
-                            logger.info("[Agent3] Status bar: '{}'",
-                                        d.window_text().strip())
+                            logger.info(
+                                "[Agent3] Status bar: '{}'",
+                                d.window_text().strip(),
+                            )
                             break
                     except Exception:
                         continue
@@ -104,23 +128,52 @@ def press_generate_report_node(state: GlobalState) -> GlobalState:
                         continue
                 if content_items > 3:
                     report_loaded = True
-                    logger.info("[Agent3] Report data visible: {} items.", content_items)
+                    logger.info(
+                        "[Agent3] Report data visible: {} items.", content_items,
+                    )
                     break
 
             except Exception as exc:
                 logger.debug("Polling report: {}", exc)
 
-            time.sleep(1.0)
+            # Periodic progress log so the user knows we're still waiting
+            now = time.time()
+            if now - last_progress_log >= PROGRESS_LOG_INTERVAL_SEC:
+                elapsed = int(now - start)
+                logger.info(
+                    "[Agent3] Still waiting for Generate Report to finish... "
+                    "({}s elapsed, max {}s)",
+                    elapsed, MAX_TIMEOUT_SEC,
+                )
+                last_progress_log = now
+
+            time.sleep(POLL_INTERVAL_SEC)
 
         if not report_loaded:
-            # Last resort: assume loaded if we've waited long enough
-            logger.warning("[Agent3] Report load not confirmed, continuing after {}s.", timeout + MIN_WAIT)
+            # FAIL the pipeline — do NOT continue to download a non-existent
+            # report. The pipeline-level retry in main.py will try again.
+            elapsed = int(time.time() - start)
+            state["error"] = (
+                f"Generate Report did not finish within {MAX_TIMEOUT_SEC}s "
+                f"(waited {elapsed + MIN_WAIT}s total). The query may be "
+                f"running too slowly or has hung — refusing to proceed to "
+                f"the export step with no data on screen."
+            )
+            logger.error("[Agent3] {}", state["error"])
+            try:
+                save_debug_screenshot(capture_screen(), "generate_report_timeout")
+            except Exception:
+                pass
+            return state
 
-        # Settle time
+        # Settle time — let the UI finish painting after data arrived
         time.sleep(2.0)
 
         state["report_generated"] = True
-        logger.info("[Agent3] Node: press_generate_report — completed")
+        logger.info(
+            "[Agent3] Node: press_generate_report — completed in {}s",
+            int(time.time() - start) + MIN_WAIT,
+        )
 
     except Exception as exc:
         state["error"] = f"press_generate_report failed: {exc}"

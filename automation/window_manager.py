@@ -1,5 +1,6 @@
 """Window management utilities using pywinauto and pygetwindow."""
 
+import re
 import subprocess
 import time
 from typing import Any
@@ -158,38 +159,25 @@ def check_app_state(app: Application) -> str:
 
 
 def _is_excellon_window(title: str, window_title: str) -> bool:
-    """Check if a window title belongs to the Excellon application.
+    """Check if a window title belongs to the Excellon desktop application.
 
-    Matches if the app name appears at the START of the title OR
-    anywhere in the title preceded by a separator (e.g. " - Excellon").
-    Prevents false matches like "excellon-rpa-system" by checking
-    the character after the match is a word boundary.
+    Valid patterns (where KW = window_title keyword, e.g. "Excellon"):
+      - "KW"                      → login / splash screen
+      - "KW 5.x.x.x"             → main window with version
+      - "Report Name - KW 5.x.x.x" → report window
+
+    Rejected examples:
+      - "KW - Google Sheets - Chrome"  → browser tab (KW not followed by digit)
+      - "excellon-rpa-system"          → path fragment (hyphen, no word boundary)
     """
-    t = title.lower()
-    keyword = window_title.strip().lower()
-
-    # Find all occurrences of the keyword in the title
-    start = 0
-    while True:
-        idx = t.find(keyword, start)
-        if idx == -1:
-            return False
-
-        end_idx = idx + len(keyword)
-
-        # Check character before: must be start-of-string or a separator
-        # Note: "-" is excluded because "excellon-rpa-system" in paths/titles
-        # should NOT match the "Excellon" app keyword
-        if idx > 0 and t[idx - 1] not in (" ", "\t", ".", ",", ":", ";"):
-            start = idx + 1
-            continue
-
-        # Check character after: must be end-of-string or a separator
-        if end_idx < len(t) and t[end_idx] not in (" ", "\t", ".", ",", ":", ";"):
-            start = idx + 1
-            continue
-
+    kw = re.escape(window_title.strip())
+    # Pattern 1: title IS exactly the keyword, or keyword + space + version digit
+    if re.match(rf"(?i)^{kw}(\s+\d|$)", title):
         return True
+    # Pattern 2: "Anything - Keyword" or "Anything - Keyword 5.x"
+    if re.search(rf"(?i) - {kw}(\s+\d|$)", title):
+        return True
+    return False
 
 
 def is_app_running(window_title: str) -> bool:

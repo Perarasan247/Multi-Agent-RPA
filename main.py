@@ -13,7 +13,13 @@ from pathlib import Path
 
 from loguru import logger
 
+from config.license import check_license
 from config.settings import settings
+
+
+def _validate_license() -> None:
+    license_path = Path.cwd() / "license.key"
+    check_license(settings.license_secret, license_path)
 
 
 def _setup_logging() -> None:
@@ -36,19 +42,15 @@ def _setup_logging() -> None:
     )
 
 
-def run_full_pipeline(
-    report_key: str | None = None,
-    from_date: str | None = None,
-    to_date: str | None = None,
-) -> None:
-    """Run the complete 4-agent pipeline."""
-    from config.report_loader import get_active_report
-    from orchestrator.graph import build_orchestrator_graph
+MAX_RETRIES = 3
+
+
+def _build_fresh_state(
+    rk: str, report: dict,
+    from_date: str | None, to_date: str | None,
+):
+    """Build a fresh GlobalState for a pipeline run."""
     from orchestrator.state import GlobalState
-
-    rk = report_key or settings.report_key
-    report = get_active_report(rk)
-
     state: GlobalState = {
         "current_agent": "",
         "pipeline_status": "running",
@@ -69,6 +71,9 @@ def run_full_pipeline(
         "folders": report["folders"],
         "report_name": report["report_name"],
         "filters": report["filters"],
+        "skip_filters": report["skip_filters"],
+        "as_on_date_only": report["as_on_date_only"],
+        "dealer": report["dealer"],
         "search_typed": False,
         "ui_candidates": [],
         "exact_match": None,
@@ -89,37 +94,179 @@ def run_full_pipeline(
         "open_file_declined": False,
         "app_closed": False,
     }
+    return state
+
+
+def _verify_downloaded_file(final_state: dict) -> bool:
+    """Check the downloaded file actually exists on disk."""
+    from pathlib import Path
+
+    filename = final_state.get("filename_built")
+    if not filename:
+        logger.error("[Verify] No filename was built — cannot verify.")
+        return False
+
+    save_dir = settings.save_path
+    full_path = Path(save_dir) / filename
+
+    if full_path.exists():
+        size_kb = full_path.stat().st_size / 1024
+        logger.info("[Verify] File confirmed: '{}' ({:.1f} KB)", full_path, size_kb)
+        return True
+    else:
+        logger.error("[Verify] File NOT found at: '{}'", full_path)
+        return False
+
+
+def run_full_pipeline(
+    report_key: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> bool:
+    """Run the complete 4-agent pipeline with retry on failure.
+
+    Returns True on success, False if all retries are exhausted.
+    """
+    from config.report_loader import get_active_report
+    from orchestrator.graph import build_orchestrator_graph
+
+    rk = report_key or settings.report_key
+    report = get_active_report(rk)
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        state = _build_fresh_state(rk, report, from_date, to_date)
+
+        logger.info("=" * 60)
+        logger.info("Starting Excellon RPA Pipeline (attempt {}/{})", attempt, MAX_RETRIES)
+        logger.info("Report: {} ({})", report["report_name"], rk)
+        logger.info("Date range: {} → {}", state["from_date"], state["to_date"])
+        logger.info("=" * 60)
+
+        start_time = time.time()
+
+        graph = build_orchestrator_graph()
+        compiled = graph.compile()
+        final_state = compiled.invoke(state)
+
+        duration = time.time() - start_time
+
+        # Check if pipeline succeeded
+        if final_state.get("pipeline_status") == "success":
+            # Verify the file was actually downloaded
+            if _verify_downloaded_file(final_state):
+                logger.info("=" * 60)
+                logger.info("Pipeline Status: SUCCESS")
+                logger.info("File Saved: {}", final_state["filename_built"])
+                logger.info("Duration: {:.1f}s", duration)
+                logger.info("=" * 60)
+                return True
+            else:
+                logger.error(
+                    "Pipeline reported success but file not found on disk. "
+                    "Attempt {}/{} failed.",
+                    attempt, MAX_RETRIES,
+                )
+        else:
+            logger.error(
+                "Pipeline failed: {} | Attempt {}/{}",
+                final_state.get("error", "Unknown error"),
+                attempt, MAX_RETRIES,
+            )
+
+        # If not the last attempt, ensure Excellon is gone before retrying
+        if attempt < MAX_RETRIES:
+            try:
+                from automation.window_manager import is_app_running
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    if not is_app_running(settings.app_window_title):
+                        break
+                    time.sleep(1.0)
+                else:
+                    logger.warning("Excellon still running before retry — proceeding anyway.")
+            except Exception:
+                pass
+            logger.info("Waiting 5 seconds before retry...")
+            time.sleep(5)
+
+    # All retries exhausted
+    logger.error("=" * 60)
+    logger.error("Pipeline FAILED after {} attempts.", MAX_RETRIES)
+    logger.error("Report: {} ({})", report["report_name"], rk)
+    logger.error("Last error: {}", final_state.get("error", "Unknown"))
+    logger.error("=" * 60)
+    return False
+
+
+def run_all_reports(
+    report_keys: list[str] | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> None:
+    """Run every report in reports.json sequentially.
+
+    Args:
+        report_keys: Explicit list of keys to run. If None, runs all keys in
+                     reports.json in order.
+        from_date:   Override from date for all reports.
+        to_date:     Override to date (also used as as-on-date for stock reports).
+    """
+    from config.report_loader import get_all_report_keys
+
+    keys = report_keys or get_all_report_keys()
+    total = len(keys)
+    results: dict[str, str] = {}
 
     logger.info("=" * 60)
-    logger.info("Starting Excellon RPA Pipeline")
-    logger.info("Report: {} ({})", report["report_name"], rk)
-    logger.info("Date range: {} → {}", state["from_date"], state["to_date"])
+    logger.info("BATCH: Starting {} report(s).", total)
     logger.info("=" * 60)
 
-    start_time = time.time()
+    for i, key in enumerate(keys, 1):
+        logger.info("BATCH [{}/{}]: {}", i, total, key)
+        try:
+            success = run_full_pipeline(key, from_date, to_date)
+            results[key] = "SUCCESS" if success else "FAILED"
+        except Exception as exc:
+            logger.error("BATCH: '{}' raised unexpected exception: {}", key, exc)
+            results[key] = f"ERROR: {exc}"
 
-    graph = build_orchestrator_graph()
-    compiled = graph.compile()
-    final_state = compiled.invoke(state)
+        # Brief pause between reports so Excellon has time to fully close
+        if i < total:
+            time.sleep(3)
 
-    duration = time.time() - start_time
+    # ── Summary ──────────────────────────────────────────────────────────────
+    succeeded = [k for k, v in results.items() if v == "SUCCESS"]
+    failed    = [k for k, v in results.items() if v != "SUCCESS"]
 
     logger.info("=" * 60)
-    logger.info("Pipeline Status: {}", final_state.get("pipeline_status", "unknown"))
-    if final_state.get("filename_built"):
-        logger.info("File Saved: {}", final_state["filename_built"])
-    if final_state.get("error"):
-        logger.error("Error: {}", final_state["error"])
-    logger.info("Duration: {:.1f}s", duration)
+    logger.info("BATCH COMPLETE: {}/{} succeeded.", len(succeeded), total)
+    for key, status in results.items():
+        marker = "✓" if status == "SUCCESS" else "✗"
+        logger.info("  {} {} → {}", marker, key, status)
     logger.info("=" * 60)
 
+    if failed:
+        logger.error("BATCH: Failed reports: {}", failed)
 
-def run_single_agent(agent_name: str) -> None:
-    """Run a single agent by name."""
+
+def run_single_agent(
+    agent_name: str,
+    report_key: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> None:
+    """Run a single agent by name.
+
+    Args:
+        agent_name: 'login', 'navigation', 'filter', or 'download'.
+        report_key: Override report key (defaults to settings.report_key).
+        from_date: Override from date (defaults to settings.filter_from_date).
+        to_date: Override to date (defaults to settings.filter_to_date).
+    """
     from config.report_loader import get_active_report
     from orchestrator.state import GlobalState
 
-    rk = settings.report_key
+    rk = report_key or settings.report_key
     report = get_active_report(rk)
 
     state: GlobalState = {
@@ -140,6 +287,9 @@ def run_single_agent(agent_name: str) -> None:
         "folders": report["folders"],
         "report_name": report["report_name"],
         "filters": report["filters"],
+        "skip_filters": report["skip_filters"],
+        "as_on_date_only": report["as_on_date_only"],
+        "dealer": report["dealer"],
         "search_typed": False,
         "ui_candidates": [],
         "exact_match": None,
@@ -148,8 +298,8 @@ def run_single_agent(agent_name: str) -> None:
         "filter_window_open": False,
         "tax_boxes_handled": False,
         "date_range_set": False,
-        "from_date": settings.filter_from_date,
-        "to_date": settings.filter_to_date,
+        "from_date": from_date or settings.filter_from_date,
+        "to_date": to_date or settings.filter_to_date,
         "report_generated": False,
         "export_clicked": False,
         "export_popup_dismissed": False,
@@ -220,6 +370,7 @@ def start_api_server() -> None:
 def main() -> None:
     """Parse CLI arguments and dispatch to the appropriate mode."""
     _setup_logging()
+    _validate_license()
 
     parser = argparse.ArgumentParser(
         description="Excellon RPA System — Multi-agent automation pipeline",
@@ -228,7 +379,12 @@ def main() -> None:
     group.add_argument(
         "--run",
         action="store_true",
-        help="Run the full pipeline directly",
+        help="Run the full pipeline for a single report",
+    )
+    group.add_argument(
+        "--run-all",
+        action="store_true",
+        help="Run every report in reports.json sequentially",
     )
     group.add_argument(
         "--api",
@@ -242,16 +398,29 @@ def main() -> None:
         help="Run a single agent",
     )
 
-    # Optional overrides for --run mode
-    parser.add_argument("--report-key", type=str, default=None, help="Override report key")
-    parser.add_argument("--from-date", type=str, default=None, help="Override from date")
-    parser.add_argument("--to-date", type=str, default=None, help="Override to date")
+    # Optional overrides
+    parser.add_argument("--report-key", type=str, default=None, help="Override report key (--run only)")
+    parser.add_argument(
+        "--reports",
+        type=str,
+        default=None,
+        help="Comma-separated report keys to run (--run-all only, e.g. sale_statement,stock_valuation)",
+    )
+    parser.add_argument("--from-date", type=str, default=None, help="Override from date (DD/MM/YYYY)")
+    parser.add_argument("--to-date", type=str, default=None, help="Override to date (DD/MM/YYYY)")
 
     args = parser.parse_args()
 
     if args.run:
         run_full_pipeline(
             report_key=args.report_key,
+            from_date=args.from_date,
+            to_date=args.to_date,
+        )
+    elif args.run_all:
+        keys = [k.strip() for k in args.reports.split(",")] if args.reports else None
+        run_all_reports(
+            report_keys=keys,
             from_date=args.from_date,
             to_date=args.to_date,
         )

@@ -115,9 +115,9 @@ def handle_save_as_node(state: GlobalState) -> GlobalState:
     """Wait for Save As dialog, rename the file, and save."""
     logger.info("[Agent4] Node: handle_save_as — entering")
     try:
-        hwnd, title = _find_window_by_title(("save as",), timeout=15.0)
+        hwnd, title = _find_window_by_title(("save as",), timeout=30.0)
         if hwnd is None:
-            state["error"] = "Save As dialog did not appear within 15s."
+            state["error"] = "Save As dialog did not appear within 30s."
             logger.error("[Agent4] {}", state["error"])
             return state
 

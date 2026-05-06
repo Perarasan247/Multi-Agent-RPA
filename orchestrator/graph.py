@@ -66,13 +66,47 @@ def _run_agent4(state: GlobalState) -> GlobalState:
 
 
 def _pipeline_failed(state: GlobalState) -> GlobalState:
-    """Handle pipeline failure."""
+    """Handle pipeline failure — close Excellon robustly so the retry starts clean."""
     logger.error(
         "Pipeline FAILED at agent '{}': {}",
         state.get("current_agent", "unknown"),
         state.get("error", "Unknown error"),
     )
     state["pipeline_status"] = "failed"
+
+    try:
+        import time
+        import pyautogui
+        from automation.window_manager import is_app_running
+        from config.settings import settings
+        from agents.agent4_download.nodes.close_application import (
+            _force_foreground, _dismiss_confirmation,
+        )
+
+        if not is_app_running(settings.app_window_title):
+            return state
+
+        logger.info("Closing Excellon after pipeline failure...")
+        _force_foreground()
+        time.sleep(0.3)
+        pyautogui.hotkey("alt", "F4")
+        time.sleep(0.5)
+        _dismiss_confirmation()
+        time.sleep(0.5)
+        _dismiss_confirmation()
+
+        # Wait up to 8 s for the process to actually exit
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            if not is_app_running(settings.app_window_title):
+                logger.info("Excellon closed after failure.")
+                return state
+            time.sleep(0.5)
+
+        logger.warning("Excellon may still be running after close attempt.")
+    except Exception as exc:
+        logger.warning("Could not close Excellon after failure: {}", exc)
+
     return state
 
 

@@ -1,113 +1,53 @@
-# ==========================================
-
-# Virtual Environment (VERY IMPORTANT)
-
-# ==========================================
-
+# Virtual environment
 .venv/
 venv/
 env/
-ENV/
 
-# ==========================================
-
-# Python Cache Files
-
-# ==========================================
-
-**pycache**/
+# Python cache
+__pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.egg-info/
 
-# ==========================================
-
-# Environment Variables
-
-# ==========================================
-
+# Secrets & credentials (never commit)
 .env
 .env.*
+.secrets
 
-# ==========================================
+# License (client-specific, generated per client)
+license.key
+
+# PyInstaller build output
+build/
+dist/
+*.spec.bak
+
+# Packaged client releases
+excellon_v1.0/
+excellon_v1.0.zip
+client-package/
+client-package.zip
 
 # Logs
-
-# ==========================================
-
+logs/
 *.log
 
-# ==========================================
+# Screenshots & temp captures
+logs/screenshots/
+*.png
+*.jpg
 
-# VS Code
+# Downloaded reports
+download/
 
-# ==========================================
-
+# IDE
 .vscode/
+.idea/
 
-# ==========================================
-
-# OS Files
-
-# ==========================================
-
+# OS
 .DS_Store
 Thumbs.db
 
-# ==========================================
-
-# Temporary Files
-
-# ==========================================
-
-*.tmp
-*.temp
-
-# ==========================================
-
-# Python Build Files
-
-# ==========================================
-
-build/
-dist/
-*.egg-info/
-
-# ==========================================
-
-# Jupyter Notebook Checkpoints (if added later)
-
-# ==========================================
-
+# Jupyter
 .ipynb_checkpoints/
-
-# ==========================================
-
-# Ignore compiled files
-
-# ==========================================
-
-*.exe
-*.dll
-*.so
-
-# ==========================================
-
-# Keep project code (DO NOT IGNORE THESE)
-
-# ==========================================
-
-!agents/
-!api/
-!automation/
-!*.py
-
-# ==========================================
-
-# Downloaded reports and screenshots
-
-# ==========================================
-
-download/
-logs/screenshots/
-assets/

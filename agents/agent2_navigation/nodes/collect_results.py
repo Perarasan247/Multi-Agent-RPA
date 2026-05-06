@@ -228,44 +228,82 @@ def _find_via_screenshot(app, report_name: str) -> dict | None:
             len(all_regions), report_name,
         )
 
-        # Step 1: Width-based — widest highlight = exact match (all words merged).
-        # This is deterministic and works for middle-word disambiguation
-        # (e.g. "Purchase Statement" vs "Purchase Invoice Statement").
+        # Step 1: Gemini row-by-row OCR — most reliable when available.
+        logger.info(
+            "[Agent2] {} highlights — trying Gemini row OCR for '{}'.",
+            len(all_regions), report_name,
+        )
+        coords = _gemini_row_ocr(all_regions)
+        if coords:
+            logger.info("[Agent2] Gemini row-OCR picked ({}, {}).", *coords)
+            return _make_candidate(*coords)
+
+        # Step 2: Gemini index on full panel
+        coords = _gemini_pick_by_index(all_regions)
+        if coords:
+            logger.info("[Agent2] Gemini (index) picked ({}, {}).", *coords)
+            return _make_candidate(*coords)
+
+        # Step 3: Claude Haiku 4.5 row-by-row OCR (Gemini fallback).
+        try:
+            from vision.anthropic_verifier import anthropic_row_ocr
+            logger.info(
+                "[Agent2] Gemini failed — trying Claude row OCR for '{}'.",
+                report_name,
+            )
+            coords = anthropic_row_ocr(
+                screenshot, all_regions, report_name, panel_left, panel_w,
+            )
+            if coords:
+                logger.info("[Agent2] Claude row-OCR picked ({}, {}).", *coords)
+                return _make_candidate(*coords)
+        except Exception as exc:
+            logger.warning("[Agent2] Claude row-OCR error: {}", exc)
+
+        # Step 4: Claude Haiku 4.5 index on full panel
+        try:
+            from vision.anthropic_verifier import anthropic_pick_by_index
+            coords = anthropic_pick_by_index(panel_crop, all_regions, report_name)
+            if coords:
+                logger.info("[Agent2] Claude (index) picked ({}, {}).", *coords)
+                return _make_candidate(*coords)
+        except Exception as exc:
+            logger.warning("[Agent2] Claude index error: {}", exc)
+
+        # Step 5: Local OCR — render target text and template-match per row.
+        # No network required; works offline.
+        try:
+            from vision.local_disambiguator import disambiguate_by_template
+            logger.info(
+                "[Agent2] LLM fallbacks unavailable — trying local OCR / "
+                "template matching for '{}'.",
+                report_name,
+            )
+            coords = disambiguate_by_template(
+                screenshot, all_regions, report_name, panel_left, panel_w,
+            )
+            if coords:
+                logger.info("[Agent2] Local OCR picked ({}, {}).", *coords)
+                return _make_candidate(*coords)
+        except Exception as exc:
+            logger.warning("[Agent2] Local OCR error: {}", exc)
+
+        # Step 6: Width-based fallback.
+        # Pick the narrowest highlight — exact match has fewer characters.
         widths = [r[3] for r in all_regions]
         max_w = max(widths)
         min_w = min(widths)
         logger.debug("[Width] region widths: {}", widths)
 
         if max_w - min_w >= 15:
-            # Clear width winner — use it directly without Gemini
-            best = max(all_regions, key=lambda r: r[3])
+            best = min(all_regions, key=lambda r: r[3])
             sx, sy = best[0], best[1]
             logger.info(
-                "[Agent2] Width-pick: widest={}px at ({}, {}).", max_w, sx, sy,
+                "[Agent2] Width-pick: narrowest={}px at ({}, {}).", min_w, sx, sy,
             )
             return _make_candidate(sx, sy)
 
-        # Step 2: Widths are similar (e.g. "Sales MIS Report" vs
-        # "Sales MIS Report New" — extra word is at END, same highlighted span).
-        # OCR each row individually: crop the row strip, ask Gemini YES/NO.
-        # This is far more reliable than asking Gemini to count items in the
-        # full panel image.
-        logger.info(
-            "[Agent2] Widths too similar ({}-{}px) — trying per-row OCR.",
-            min_w, max_w,
-        )
-        coords = _gemini_row_ocr(all_regions)
-        if coords:
-            logger.info("[Agent2] Row-OCR picked ({}, {}).", *coords)
-            return _make_candidate(*coords)
-
-        # Step 3: Gemini index on full panel (last resort before median)
-        coords = _gemini_pick_by_index(all_regions)
-        if coords:
-            logger.info("[Agent2] Gemini (index) picked ({}, {}).", *coords)
-            return _make_candidate(*coords)
-
-        # Step 4: Median region
+        # Step 7: Median region (last resort)
         mid = len(all_regions) // 2
         sx, sy, _, _ = all_regions[mid]
         logger.info("[Agent2] All fallbacks failed — using median region #{} at ({}, {}).", mid + 1, sx, sy)
@@ -280,6 +318,90 @@ def _find_via_screenshot(app, report_name: str) -> dict | None:
     return None
 
 
+def _find_via_uia_descendants(app, report_name: str) -> list[dict]:
+    """Search descendants for exact text match — TreeItem/ListItem only.
+
+    Only accepts TreeItem or ListItem controls in the left panel,
+    BELOW the search bar's autocomplete dropdown area.
+    This avoids matching text in the search bar's autocomplete suggestions,
+    the Recently Used cards, or other UI elements with the same name.
+    """
+    from automation.window_manager import get_main_window
+
+    # Control types that represent actual navigation tree items
+    _TREE_TYPES = {"TreeItem", "ListItem", "DataItem"}
+
+    # Tree items live below the search bar + its autocomplete dropdown.
+    # Title (~32) + Ribbon (~30) + Toolbar (~110) + Search (~30) +
+    # autocomplete dropdown (~80) ≈ 280px down from window top.
+    _TREE_MIN_TOP_OFFSET = 280
+
+    try:
+        main_win = get_main_window(app)
+        win_rect = main_win.rectangle()
+        left_threshold = win_rect.left + (win_rect.width() // 3)
+        top_threshold = win_rect.top + _TREE_MIN_TOP_OFFSET
+        report_lower = report_name.strip().lower()
+
+        candidates = []
+        for attempt in range(3):
+            try:
+                for d in main_win.descendants():
+                    try:
+                        ctrl_type = d.element_info.control_type or ""
+                        if ctrl_type not in _TREE_TYPES:
+                            continue
+                        txt = (d.window_text() or "").strip()
+                        if txt.lower() != report_lower:
+                            continue
+                        r = d.rectangle()
+                        # Must be in the left panel
+                        if r.left >= left_threshold:
+                            continue
+                        # Must be BELOW the search-bar autocomplete area.
+                        # Items at the top of the panel are usually the
+                        # search dropdown's suggestion list, not real tree items.
+                        if r.top < top_threshold:
+                            logger.debug(
+                                "[UIA-desc] Skipping '{}' at y={} — too close "
+                                "to search bar (likely autocomplete dropdown).",
+                                txt, r.top,
+                            )
+                            continue
+                        candidate = {
+                            "text": txt,
+                            "element": d,
+                            "rect": r,
+                            "screen_x": (r.left + r.right) // 2,
+                            "screen_y": (r.top + r.bottom) // 2,
+                            "tree_path": [txt],
+                            "depth": 1,
+                        }
+                        candidates.append(candidate)
+                        logger.info(
+                            "[UIA-desc] Exact match: '{}' type={} at ({},{})",
+                            txt, ctrl_type,
+                            candidate["screen_x"], candidate["screen_y"],
+                        )
+                    except Exception:
+                        continue
+            except Exception as exc:
+                logger.debug("[UIA-desc] descendants() failed (attempt {}): {}", attempt + 1, exc)
+                import time
+                time.sleep(2.0)
+                continue
+
+            if candidates:
+                break
+
+        logger.info("[UIA-desc] Found {} exact match(es) for '{}'.", len(candidates), report_name)
+        return candidates
+
+    except Exception as exc:
+        logger.warning("[UIA-desc] Search failed: {}", exc)
+        return []
+
+
 def collect_results_node(state: GlobalState) -> GlobalState:
     """Locate the search result item after typing the report name."""
     logger.info("[Agent2] Node: collect_results — entering")
@@ -289,12 +411,24 @@ def collect_results_node(state: GlobalState) -> GlobalState:
 
         time.sleep(1.5)
 
+        # Strategy 1: UIA descendants — exact text match, most reliable
+        uia_candidates = _find_via_uia_descendants(app, report_name)
+        if uia_candidates:
+            state["ui_candidates"] = uia_candidates
+            logger.info(
+                "[Agent2] UIA found {} candidate(s) for '{}'.",
+                len(uia_candidates), report_name,
+            )
+            return state
+
+        # Strategy 2: Screenshot-based (OpenCV + Gemini fallback)
+        logger.info("[Agent2] UIA tree found nothing, falling back to screenshot detection.")
         candidate = _find_via_screenshot(app, report_name)
 
         if not candidate:
             state["error"] = (
                 f"Could not locate '{report_name}' in the left panel "
-                f"via screenshot detection (OpenCV + Gemini)."
+                f"via UIA tree or screenshot detection (OpenCV + Gemini)."
             )
             logger.error("[Agent2] {}", state["error"])
             save_debug_screenshot(capture_screen(), "collect_results_failed")

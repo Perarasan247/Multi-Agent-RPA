@@ -1,7 +1,18 @@
 """Application settings loaded from .env file using pydantic-settings."""
 
+import sys
 from pathlib import Path
 from pydantic_settings import BaseSettings
+
+# When running as a PyInstaller exe, look in the current working directory
+# for .env, and inside the bundled temp folder for .secrets (hidden from client).
+# When running as a script, look relative to this file.
+if getattr(sys, "frozen", False):
+    _BASE_DIR = Path.cwd()
+    _BUNDLE_DIR = Path(sys._MEIPASS)
+else:
+    _BASE_DIR = Path(__file__).resolve().parent.parent
+    _BUNDLE_DIR = _BASE_DIR
 
 
 class Settings(BaseSettings):
@@ -33,6 +44,10 @@ class Settings(BaseSettings):
 
     # Vision
     gemini_api_key: str = ""
+    anthropic_api_key: str = ""
+
+    # License
+    license_secret: str = ""
 
     # API
     api_host: str = "0.0.0.0"
@@ -40,7 +55,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     model_config = {
-        "env_file": str(Path(__file__).resolve().parent.parent / ".env"),
+        "env_file": [
+            str(_BASE_DIR / ".env"),
+            str(_BUNDLE_DIR / ".secrets"),
+        ],
         "env_file_encoding": "utf-8",
         "extra": "ignore",
     }

@@ -5,6 +5,7 @@ from orchestrator.state import GlobalState
 
 from agents.agent2_navigation.nodes.read_config import read_config_node
 from agents.agent2_navigation.nodes.focus_window import focus_window_node
+from agents.agent2_navigation.nodes.click_module import click_module_node
 from agents.agent2_navigation.nodes.type_search import type_search_node
 from agents.agent2_navigation.nodes.collect_results import collect_results_node
 from agents.agent2_navigation.nodes.exact_match import exact_match_node
@@ -26,6 +27,7 @@ def build_navigation_graph() -> StateGraph:
 
     graph.add_node("read_config", read_config_node)
     graph.add_node("focus_window", focus_window_node)
+    graph.add_node("click_module", click_module_node)
     graph.add_node("type_search", type_search_node)
     graph.add_node("collect_results", collect_results_node)
     graph.add_node("find_exact_match", exact_match_node)
@@ -41,6 +43,10 @@ def build_navigation_graph() -> StateGraph:
     )
     graph.add_conditional_edges(
         "focus_window", _route,
+        {"end": END, "continue": "click_module"},
+    )
+    graph.add_conditional_edges(
+        "click_module", _route,
         {"end": END, "continue": "type_search"},
     )
     graph.add_conditional_edges(

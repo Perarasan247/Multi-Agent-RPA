@@ -33,6 +33,9 @@ class GlobalState(TypedDict, total=False):
     folders: list[str]
     report_name: str
     filters: list[str]
+    skip_filters: bool
+    as_on_date_only: bool
+    dealer: str
     search_typed: bool
     ui_candidates: list[dict]
     exact_match: dict | None
